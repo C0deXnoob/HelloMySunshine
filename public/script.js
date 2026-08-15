@@ -54,23 +54,41 @@ function createPeerConnection() {
 
 document.getElementById('shareScreenBtn').onclick = async () => {
     try {
+        // Try requesting screen share with audio hint
         screenStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
-            audio: { systemAudio: "include" }
+            audio: true
         });
+
         const videoTrack = screenStream.getVideoTracks()[0];
         const audioTrack = screenStream.getAudioTracks()[0];
 
         if (peerConnection) {
-            const videoSender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-            if (videoSender) videoSender.replaceTrack(videoTrack);
+            // Replace video track for the remote user
+            const videoSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (videoSender) {
+                await videoSender.replaceTrack(videoTrack);
+            }
+
+            // Replace or send screen audio track if available
             if (audioTrack) {
-                const audioSender = peerConnection.getSenders().find(s => s.track.kind === 'audio');
-                if (audioSender) audioSender.replaceTrack(audioTrack);
+                const audioSender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (audioSender) {
+                    await audioSender.replaceTrack(audioTrack);
+                }
             }
         }
+
+        // Show screen locally
         document.getElementById('localVideo').srcObject = screenStream;
         document.getElementById('shareScreenBtn').classList.add('hidden');
         document.getElementById('stopShareBtn').classList.remove('hidden');
-    } catch (err) { console.error(err); }
+
+        // Restore camera stream when user clicks browser's native "Stop Sharing" bar
+        videoTrack.onended = stopScreenSharing;
+
+    } catch (err) {
+        console.error("Screen sharing error:", err);
+        alert("Screen share could not start. Ensure you are sharing from a desktop browser.");
+    }
 };
