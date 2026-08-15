@@ -10,18 +10,25 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(express.static(path.join(__dirname, 'public')));
 
 io.on('connection', (socket) => {
-    socket.on('join', (room) => {
+    socket.on('create-room', (room) => {
         socket.join(room);
-        const clients = Array.from(io.sockets.adapter.rooms.get(room) || []);
+        socket.role = 'host';
+        socket.room = room;
+        updateViewerCount(room);
+    });
 
-        // Limit to 3 total devices (1 PC Broadcaster + 2 Viewers)
-        if (clients.length > 3) {
-            socket.emit('room-full');
-            socket.leave(room);
-            return;
+    socket.on('join-room', (room) => {
+        const roomAdapter = io.sockets.adapter.rooms.get(room);
+        if (!roomAdapter) {
+            return socket.emit('error-msg', 'Room does not exist. Ask host to start movie first!');
         }
+        
+        socket.join(room);
+        socket.role = 'viewer';
+        socket.room = room;
 
-        socket.to(room).emit('user-joined', { callerId: socket.id });
+        socket.to(room).emit('viewer-joined', { viewerId: socket.id });
+        updateViewerCount(room);
     });
 
     socket.on('offer', (data) => {
@@ -37,11 +44,20 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnecting', () => {
-        socket.rooms.forEach((room) => {
-            socket.to(room).emit('user-left', { callerId: socket.id });
-        });
+        if (socket.room) {
+            const room = socket.room;
+            socket.to(room).emit('viewer-left', { viewerId: socket.id });
+            setTimeout(() => updateViewerCount(room), 100);
+        }
     });
 });
 
+function updateViewerCount(room) {
+    const clients = io.sockets.adapter.rooms.get(room);
+    // Count viewers (total connected in room minus 1 host)
+    const count = clients ? Math.max(0, clients.size - 1) : 0;
+    io.to(room).emit('viewer-count-update', count);
+}
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Screen Streamer running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Movie Theater Server running on port ${PORT}`));
