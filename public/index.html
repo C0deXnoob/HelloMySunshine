@@ -3,40 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Call & Screen Share</title>
+    <title>Hello My Sunshine - Movie Broadcast</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
     <div class="container">
-        <h2>WebRTC Video & Screen Share</h2>
+        <h2>Hello My Sunshine - Theater</h2>
+        
         <div id="room-selection">
-            <input type="text" id="roomInput" placeholder="Enter Room ID" />
-            <button id="joinBtn">Join Room</button>
+            <input type="text" id="roomInput" placeholder="Enter Room Name" />
+            <button id="joinBtn">Enter Room</button>
         </div>
 
-        <div id="call-container" class="hidden">
-            <!-- Screen Share Viewport -->
-            <div id="screenContainer" class="hidden">
-                <h3>Shared Screen</h3>
-                <video id="screenVideo" autoplay playsinline></video>
-            </div>
-
-            <!-- Cameras Viewport -->
-            <div class="video-grid">
-                <div class="video-box">
-                    <span>You</span>
-                    <video id="localVideo" autoplay playsinline muted></video>
-                </div>
-                <div class="video-box">
-                    <span>Peer</span>
-                    <video id="remoteVideo" autoplay playsinline></video>
+        <div id="stream-container" class="hidden">
+            <div class="player-wrapper">
+                <video id="remoteScreen" autoplay playsinline controls></video>
+                <div id="waitingState" class="placeholder">
+                    Waiting for PC to start screen share...
                 </div>
             </div>
 
             <div class="controls">
-                <button id="shareScreenBtn">Share Desktop Screen</button>
-                <button id="stopShareBtn" class="hidden">Stop Sharing</button>
+                <button id="startBroadcastBtn" class="primary">Start Movie Stream (PC Only)</button>
+                <button id="stopBroadcastBtn" class="hidden danger">Stop Stream</button>
             </div>
         </div>
     </div>
