@@ -9,8 +9,12 @@ const peers = {};
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        {
+            // Example TURN server configuration
+            urls: 'turn:your-turn-server.com:3478',
+            username: 'your-username',
+            credential: 'your-password'
+        }
     ]
 };
 
