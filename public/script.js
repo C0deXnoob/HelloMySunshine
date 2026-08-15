@@ -1,4 +1,4 @@
-const socket = io();
+const socket = io("https://hellomysunshine.onrender.com/");
 let localStream, screenStream, peerConnection, currentRoom;
 const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
