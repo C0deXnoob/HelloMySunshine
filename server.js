@@ -27,10 +27,12 @@ io.on('connection', (socket) => {
         socket.role = 'viewer';
         socket.room = room;
 
+        // Notify ONLY the host that a new viewer joined
         socket.to(room).emit('viewer-joined', { viewerId: socket.id });
         updateViewerCount(room);
     });
 
+    // Directly route offer, answer, and ICE candidates to targeted viewer/host sockets
     socket.on('offer', (data) => {
         io.to(data.target).emit('offer', { offer: data.offer, callerId: socket.id });
     });
@@ -54,7 +56,6 @@ io.on('connection', (socket) => {
 
 function updateViewerCount(room) {
     const clients = io.sockets.adapter.rooms.get(room);
-    // Count viewers (total connected in room minus 1 host)
     const count = clients ? Math.max(0, clients.size - 1) : 0;
     io.to(room).emit('viewer-count-update', count);
 }
