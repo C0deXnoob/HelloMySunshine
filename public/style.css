@@ -20,6 +20,9 @@ input, button { padding: 12px 16px; margin: 6px 0; width: 100%; box-sizing: bord
 input { background: #1e293b; color: #fff; border: 1px solid #475569; }
 button { cursor: pointer; transition: 0.2s; }
 button.primary { background: #0284c7; color: #fff; }
-button.secondary { background: #10b981; color: #fff; }
+button.secondary { background: #334155; color: #fff; }
+button.secondary:hover { background: #475569; }
 button.danger { background: #ef4444; color: #fff; }
-.info-text { font-size: 0.85rem; color: #94a3b8; margin-top: 5px; }
+
+.viewer-btn-group { display: flex; gap: 10px; justify-content: center; }
+.viewer-btn-group button { flex: 1; margin: 0; }
