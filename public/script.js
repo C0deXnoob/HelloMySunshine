@@ -14,7 +14,6 @@ const config = {
     rtcpMuxPolicy: 'require'
 };
 
-// 1. Host Path: Start Movie
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -22,11 +21,9 @@ document.getElementById('startMovieBtn').onclick = () => {
     currentRoom = room;
     isHost = true;
     socket.emit('create-room', room);
-
     setupUI('Host');
 };
 
-// 2. Viewer Path: Join Room
 document.getElementById('joinRoomBtn').onclick = () => {
     const room = document.getElementById('joinRoomInput').value.trim();
     if (!room) return alert('Enter room code');
@@ -34,13 +31,10 @@ document.getElementById('joinRoomBtn').onclick = () => {
     currentRoom = room;
     isHost = false;
     socket.emit('join-room', room);
-
     setupUI('Viewer');
 };
 
 socket.on('error-msg', (msg) => alert(msg));
-
-// Update Live Viewer Counter
 socket.on('viewer-count-update', (count) => {
     document.getElementById('viewerCount').innerText = count;
 });
@@ -58,18 +52,15 @@ function setupUI(role) {
     }
 }
 
-// Host handles new viewer joining
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
     
-    // Reset any stalled peer connection for this viewer
     if (peers[viewerId]) {
         peers[viewerId].pc.close();
         delete peers[viewerId];
     }
 
     const pc = createPeerConnection(viewerId);
-
     if (screenStream) {
         addSimulcastTracks(pc);
     }
@@ -83,9 +74,7 @@ socket.on('offer', async ({ offer, callerId }) => {
     if (isHost) return;
 
     let pc = peers[callerId]?.pc;
-    if (!pc) {
-        pc = createPeerConnection(callerId);
-    }
+    if (!pc) pc = createPeerConnection(callerId);
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
@@ -124,20 +113,16 @@ function createPeerConnection(callerId) {
         if (e.candidate) socket.emit('ice-candidate', { target: callerId, candidate: e.candidate });
     };
 
-    // Track handler for viewer
     pc.ontrack = (event) => {
         const stream = event.streams[0];
         const videoElem = document.getElementById('theaterVideo');
         
         document.getElementById('waitingState').classList.add('hidden');
-        
         if (videoElem.srcObject !== stream) {
             videoElem.srcObject = stream;
         }
 
-        // Force playback trigger
         videoElem.play().catch(() => {
-            // Mobile browser autoplay policy fallback
             videoElem.muted = true;
             videoElem.play();
         });
@@ -146,6 +131,7 @@ function createPeerConnection(callerId) {
     return pc;
 }
 
+// Configures multi-bitrate streams (1080p high layer and 480p low layer)
 function addSimulcastTracks(pc) {
     if (!screenStream) return;
     screenStream.getTracks().forEach(track => {
@@ -154,8 +140,8 @@ function addSimulcastTracks(pc) {
                 direction: 'sendonly',
                 streams: [screenStream],
                 sendEncodings: [
-                    { rid: 'high', maxBitrate: 2500000 },
-                    { rid: 'low', maxBitrate: 500000, scaleResolutionDownBy: 2.0 }
+                    { rid: 'high', maxBitrate: 4500000 }, // 1080p
+                    { rid: 'low', maxBitrate: 800000, scaleResolutionDownBy: 2.25 } // 480p
                 ]
             });
         } else {
@@ -168,7 +154,12 @@ function addSimulcastTracks(pc) {
 document.getElementById('shareScreenBtn').onclick = async () => {
     try {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { displaySurface: "browser", width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
+            video: { 
+                displaySurface: "browser", 
+                width: { max: 1920, ideal: 1920 }, 
+                height: { max: 1080, ideal: 1080 }, 
+                frameRate: { max: 30 } 
+            },
             audio: { systemAudio: "include", autoGainControl: false, echoCancellation: false, noiseSuppression: false }
         });
 
@@ -177,11 +168,8 @@ document.getElementById('shareScreenBtn').onclick = async () => {
         videoElem.muted = true;
         document.getElementById('waitingState').classList.add('hidden');
 
-        // Broadcast to all viewers currently in room
         Object.keys(peers).forEach(viewerId => {
             addSimulcastTracks(peers[viewerId].pc);
-            
-            // Trigger renegotiation for existing connections
             peers[viewerId].pc.createOffer().then(offer => {
                 peers[viewerId].pc.setLocalDescription(offer);
                 socket.emit('offer', { target: viewerId, offer });
@@ -212,6 +200,35 @@ function stopBroadcast() {
     document.getElementById('shareScreenBtn').classList.remove('hidden');
     document.getElementById('stopScreenBtn').classList.add('hidden');
 }
+
+// Viewer Quality Switcher Implementation
+document.getElementById('qualitySelect').onchange = (e) => {
+    const selectedQuality = e.target.value;
+    
+    Object.keys(peers).forEach(callerId => {
+        const pc = peers[callerId].pc;
+        const receivers = pc.getReceivers();
+        
+        receivers.forEach(receiver => {
+            if (receiver.track && receiver.track.kind === 'video') {
+                const params = receiver.getParameters();
+                if (!params.degradationPreference) {
+                    params.degradationPreference = 'maintain-framerate';
+                }
+
+                // Adjust receiver limits based on selected resolution
+                if (selectedQuality === '1080') {
+                    receiver.track.applyConstraints({ width: 1920, height: 1080 });
+                } else if (selectedQuality === '480') {
+                    receiver.track.applyConstraints({ width: 854, height: 480 });
+                } else {
+                    // Reset constraints for Auto mode
+                    receiver.track.applyConstraints({});
+                }
+            }
+        });
+    });
+};
 
 // Fullscreen
 document.getElementById('fullscreenBtn').onclick = () => {
