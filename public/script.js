@@ -3,17 +3,18 @@ const socket = io("https://hellomysunshine.onrender.com");
 let currentRoom = null;
 let isHost = false;
 let screenStream = null;
+// Maps each viewer socket ID to its own RTCPeerConnection instance
 const peers = {};
 
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ],
-    bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ]
 };
 
+// 1. Host Path: Start Movie
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -24,6 +25,7 @@ document.getElementById('startMovieBtn').onclick = () => {
     setupUI('Host');
 };
 
+// 2. Viewer Path: Join Room
 document.getElementById('joinRoomBtn').onclick = () => {
     const room = document.getElementById('joinRoomInput').value.trim();
     if (!room) return alert('Enter room code');
@@ -35,6 +37,8 @@ document.getElementById('joinRoomBtn').onclick = () => {
 };
 
 socket.on('error-msg', (msg) => alert(msg));
+
+// Real-time audience counter update
 socket.on('viewer-count-update', (count) => {
     document.getElementById('viewerCount').innerText = count;
 });
@@ -52,17 +56,20 @@ function setupUI(role) {
     }
 }
 
+// Host: Dedicated peer connection per joining viewer
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
-    
+
     if (peers[viewerId]) {
-        peers[viewerId].pc.close();
+        peers[viewerId].close();
         delete peers[viewerId];
     }
 
     const pc = createPeerConnection(viewerId);
+    peers[viewerId] = pc;
+
     if (screenStream) {
-        addSimulcastTracks(pc);
+        addTracksToPeer(pc);
     }
 
     const offer = await pc.createOffer();
@@ -70,11 +77,15 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     socket.emit('offer', { target: viewerId, offer });
 });
 
+// Targeted WebRTC Signaling Handlers
 socket.on('offer', async ({ offer, callerId }) => {
     if (isHost) return;
 
-    let pc = peers[callerId]?.pc;
-    if (!pc) pc = createPeerConnection(callerId);
+    let pc = peers[callerId];
+    if (!pc) {
+        pc = createPeerConnection(callerId);
+        peers[callerId] = pc;
+    }
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
@@ -83,15 +94,15 @@ socket.on('offer', async ({ offer, callerId }) => {
 });
 
 socket.on('answer', async ({ answer, callerId }) => {
-    if (peers[callerId] && peers[callerId].pc) {
-        await peers[callerId].pc.setRemoteDescription(new RTCSessionDescription(answer));
+    if (peers[callerId]) {
+        await peers[callerId].setRemoteDescription(new RTCSessionDescription(answer));
     }
 });
 
 socket.on('ice-candidate', async ({ candidate, callerId }) => {
-    if (peers[callerId] && peers[callerId].pc) {
+    if (peers[callerId]) {
         try {
-            await peers[callerId].pc.addIceCandidate(new RTCIceCandidate(candidate));
+            await peers[callerId].addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
             console.error("ICE candidate error:", err);
         }
@@ -100,19 +111,21 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
 
 socket.on('viewer-left', ({ viewerId }) => {
     if (peers[viewerId]) {
-        peers[viewerId].pc.close();
+        peers[viewerId].close();
         delete peers[viewerId];
     }
 });
 
-function createPeerConnection(callerId) {
+function createPeerConnection(targetId) {
     const pc = new RTCPeerConnection(config);
-    peers[callerId] = { pc, senders: [] };
 
     pc.onicecandidate = (e) => {
-        if (e.candidate) socket.emit('ice-candidate', { target: callerId, candidate: e.candidate });
+        if (e.candidate) {
+            socket.emit('ice-candidate', { target: targetId, candidate: e.candidate });
+        }
     };
 
+    // Viewer track receiver
     pc.ontrack = (event) => {
         const stream = event.streams[0];
         const videoElem = document.getElementById('theaterVideo');
@@ -122,6 +135,7 @@ function createPeerConnection(callerId) {
             videoElem.srcObject = stream;
         }
 
+        // Automatic playback trigger with fallback for mobile browser restrictions
         videoElem.play().catch(() => {
             videoElem.muted = true;
             videoElem.play();
@@ -131,26 +145,14 @@ function createPeerConnection(callerId) {
     return pc;
 }
 
-// Configures multi-bitrate streams (1080p high layer and 480p low layer)
-function addSimulcastTracks(pc) {
+function addTracksToPeer(pc) {
     if (!screenStream) return;
     screenStream.getTracks().forEach(track => {
-        if (track.kind === 'video') {
-            pc.addTransceiver(track, {
-                direction: 'sendonly',
-                streams: [screenStream],
-                sendEncodings: [
-                    { rid: 'high', maxBitrate: 4500000 }, // 1080p
-                    { rid: 'low', maxBitrate: 800000, scaleResolutionDownBy: 2.25 } // 480p
-                ]
-            });
-        } else {
-            pc.addTrack(track, screenStream);
-        }
+        pc.addTrack(track, screenStream);
     });
 }
 
-// Host Screen Sharing Controls
+// Host Screen Sharing Implementation
 document.getElementById('shareScreenBtn').onclick = async () => {
     try {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -160,21 +162,28 @@ document.getElementById('shareScreenBtn').onclick = async () => {
                 height: { max: 1080, ideal: 1080 }, 
                 frameRate: { max: 30 } 
             },
-            audio: { systemAudio: "include", autoGainControl: false, echoCancellation: false, noiseSuppression: false }
+            audio: { 
+                systemAudio: "include", 
+                autoGainControl: false, 
+                echoCancellation: false, 
+                noiseSuppression: false 
+            }
         });
 
         const videoElem = document.getElementById('theaterVideo');
         videoElem.srcObject = screenStream;
-        videoElem.muted = true;
+        videoElem.muted = true; // Muted locally on host to avoid audio loopback
         document.getElementById('waitingState').classList.add('hidden');
 
-        Object.keys(peers).forEach(viewerId => {
-            addSimulcastTracks(peers[viewerId].pc);
-            peers[viewerId].pc.createOffer().then(offer => {
-                peers[viewerId].pc.setLocalDescription(offer);
-                socket.emit('offer', { target: viewerId, offer });
-            });
-        });
+        // Distribute screen stream across all connected viewers
+        for (const viewerId of Object.keys(peers)) {
+            const pc = peers[viewerId];
+            addTracksToPeer(pc);
+            
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('offer', { target: viewerId, offer });
+        }
 
         document.getElementById('shareScreenBtn').classList.add('hidden');
         document.getElementById('stopScreenBtn').classList.remove('hidden');
@@ -201,36 +210,32 @@ function stopBroadcast() {
     document.getElementById('stopScreenBtn').classList.add('hidden');
 }
 
-// Viewer Quality Switcher Implementation
-document.getElementById('qualitySelect').onchange = (e) => {
-    const selectedQuality = e.target.value;
-    
-    Object.keys(peers).forEach(callerId => {
-        const pc = peers[callerId].pc;
-        const receivers = pc.getReceivers();
+// Quality Switcher
+const qualitySelect = document.getElementById('qualitySelect');
+if (qualitySelect) {
+    qualitySelect.onchange = (e) => {
+        const selectedQuality = e.target.value;
         
-        receivers.forEach(receiver => {
-            if (receiver.track && receiver.track.kind === 'video') {
-                const params = receiver.getParameters();
-                if (!params.degradationPreference) {
-                    params.degradationPreference = 'maintain-framerate';
+        Object.keys(peers).forEach(callerId => {
+            const pc = peers[callerId];
+            const receivers = pc.getReceivers();
+            
+            receivers.forEach(receiver => {
+                if (receiver.track && receiver.track.kind === 'video') {
+                    if (selectedQuality === '1080') {
+                        receiver.track.applyConstraints({ width: 1920, height: 1080 });
+                    } else if (selectedQuality === '480') {
+                        receiver.track.applyConstraints({ width: 854, height: 480 });
+                    } else {
+                        receiver.track.applyConstraints({});
+                    }
                 }
-
-                // Adjust receiver limits based on selected resolution
-                if (selectedQuality === '1080') {
-                    receiver.track.applyConstraints({ width: 1920, height: 1080 });
-                } else if (selectedQuality === '480') {
-                    receiver.track.applyConstraints({ width: 854, height: 480 });
-                } else {
-                    // Reset constraints for Auto mode
-                    receiver.track.applyConstraints({});
-                }
-            }
+            });
         });
-    });
-};
+    };
+}
 
-// Fullscreen
+// Fullscreen Toggle
 document.getElementById('fullscreenBtn').onclick = () => {
     const container = document.getElementById('playerContainer');
     if (!document.fullscreenElement) {
@@ -241,7 +246,7 @@ document.getElementById('fullscreenBtn').onclick = () => {
     }
 };
 
-// Picture-in-Picture (Minimize)
+// Picture-in-Picture Mode
 document.getElementById('pipBtn').onclick = async () => {
     const videoElem = document.getElementById('theaterVideo');
     try {
@@ -255,7 +260,7 @@ document.getElementById('pipBtn').onclick = async () => {
     }
 };
 
-// Unmute Audio Button
+// Viewer Enable Audio Button
 document.getElementById('unmuteBtn').onclick = () => {
     const videoElem = document.getElementById('theaterVideo');
     videoElem.muted = false;
