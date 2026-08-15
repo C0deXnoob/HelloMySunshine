@@ -3,24 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello My Sunshine</title>
+    <title>WebRTC Call & Screen Share</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
     <div class="container">
-        <h2>Hello My Sunshine</h2>
+        <h2>WebRTC Video & Screen Share</h2>
         <div id="room-selection">
             <input type="text" id="roomInput" placeholder="Enter Room ID" />
             <button id="joinBtn">Join Room</button>
         </div>
+
         <div id="call-container" class="hidden">
-            <div class="video-grid">
-                <video id="localVideo" autoplay playsinline muted></video>
-                <video id="remoteVideo" autoplay playsinline></video>
+            <!-- Screen Share Viewport -->
+            <div id="screenContainer" class="hidden">
+                <h3>Shared Screen</h3>
+                <video id="screenVideo" autoplay playsinline></video>
             </div>
+
+            <!-- Cameras Viewport -->
+            <div class="video-grid">
+                <div class="video-box">
+                    <span>You</span>
+                    <video id="localVideo" autoplay playsinline muted></video>
+                </div>
+                <div class="video-box">
+                    <span>Peer</span>
+                    <video id="remoteVideo" autoplay playsinline></video>
+                </div>
+            </div>
+
             <div class="controls">
-                <button id="shareScreenBtn">Share Screen</button>
+                <button id="shareScreenBtn">Share Desktop Screen</button>
                 <button id="stopShareBtn" class="hidden">Stop Sharing</button>
             </div>
         </div>
