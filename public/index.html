@@ -35,21 +35,26 @@
                 <span class="audience-tag">👥 Watching Now: <strong id="viewerCount">0</strong></span>
             </div>
 
-            <div class="player-wrapper">
+            <div id="playerContainer" class="player-wrapper">
                 <video id="theaterVideo" autoplay playsinline></video>
                 <div id="waitingState" class="placeholder">
                     <span>Host has not started sharing screen yet...</span>
                 </div>
             </div>
 
+            <!-- Host Controls -->
             <div id="hostControls" class="controls hidden">
                 <button id="shareScreenBtn" class="primary">Share Movie Screen & System Audio</button>
                 <button id="stopScreenBtn" class="danger hidden">Stop Broadcast</button>
             </div>
             
+            <!-- Viewer Controls -->
             <div id="viewerControls" class="controls hidden">
-                <p class="info-text">💡 If video is silent, click button below to enable mobile audio playback.</p>
-                <button id="unmuteBtn" class="secondary">Enable Audio</button>
+                <div class="viewer-btn-group">
+                    <button id="fullscreenBtn" class="secondary">Fullscreen ⛶</button>
+                    <button id="pipBtn" class="secondary">Minimize (PiP) 🗔</button>
+                    <button id="unmuteBtn" class="primary">Enable Audio 🔊</button>
+                </div>
             </div>
         </div>
     </div>
