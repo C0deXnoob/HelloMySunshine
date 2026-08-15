@@ -3,7 +3,7 @@ const socket = io("https://hellomysunshine.onrender.com");
 let currentRoom = null;
 let isHost = false;
 let screenStream = null;
-// Maps each viewer socket ID to its own RTCPeerConnection instance
+let localStream = null; // User's webcam and microphone stream
 const peers = {};
 
 // ICE Configuration with Metered TURN Relay for Cross-City Connectivity
@@ -98,7 +98,10 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     peers[viewerId] = pc;
 
     if (screenStream) {
-        addTracksToPeer(pc);
+        addTracksToPeer(pc, screenStream);
+    }
+    if (localStream) {
+        addTracksToPeer(pc, localStream);
     }
 
     const offer = await pc.createOffer();
@@ -156,27 +159,82 @@ function createPeerConnection(targetId) {
 
     pc.ontrack = (event) => {
         const stream = event.streams[0];
-        const videoElem = document.getElementById('theaterVideo');
-        
-        document.getElementById('waitingState').classList.add('hidden');
-        if (videoElem.srcObject !== stream) {
-            videoElem.srcObject = stream;
-        }
+        const track = event.track;
 
-        videoElem.play().catch(() => {
-            videoElem.muted = true;
-            videoElem.play();
-        });
+        // Route screen tracks to main theater display, video call tracks to user preview
+        if (track.kind === 'video' && stream.getVideoTracks().length > 0) {
+            const videoElem = document.getElementById('theaterVideo');
+            const remoteCamElem = document.getElementById('remoteCamVideo');
+
+            if (remoteCamElem && stream !== screenStream) {
+                remoteCamElem.srcObject = stream;
+                remoteCamElem.play().catch(() => {});
+            } else {
+                document.getElementById('waitingState').classList.add('hidden');
+                if (videoElem.srcObject !== stream) {
+                    videoElem.srcObject = stream;
+                }
+                videoElem.play().catch(() => {
+                    videoElem.muted = true;
+                    videoElem.play();
+                });
+            }
+        }
     };
 
     return pc;
 }
 
-function addTracksToPeer(pc) {
-    if (!screenStream) return;
-    screenStream.getTracks().forEach(track => {
-        pc.addTrack(track, screenStream);
+function addTracksToPeer(pc, stream) {
+    if (!stream) return;
+    stream.getTracks().forEach(track => {
+        pc.addTrack(track, stream);
     });
+}
+
+// Video Call / Webcam Toggle Logic
+const toggleCamBtn = document.getElementById('toggleCamBtn');
+if (toggleCamBtn) {
+    toggleCamBtn.onclick = async () => {
+        if (!localStream) {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 },
+                    audio: true
+                });
+
+                const localCamElem = document.getElementById('localCamVideo');
+                if (localCamElem) {
+                    localCamElem.srcObject = localStream;
+                    localCamElem.muted = true;
+                }
+
+                for (const callerId of Object.keys(peers)) {
+                    const pc = peers[callerId];
+                    addTracksToPeer(pc, localStream);
+
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    socket.emit('offer', { target: callerId, offer });
+                }
+
+                toggleCamBtn.innerText = "Stop Video Call";
+                toggleCamBtn.classList.add('btn-danger');
+            } catch (err) {
+                console.error("Camera access error:", err);
+                alert("Unable to access camera and microphone.");
+            }
+        } else {
+            localStream.getTracks().forEach(track => track.stop());
+            localStream = null;
+
+            const localCamElem = document.getElementById('localCamVideo');
+            if (localCamElem) localCamElem.srcObject = null;
+
+            toggleCamBtn.innerText = "Start Video Call";
+            toggleCamBtn.classList.remove('btn-danger');
+        }
+    };
 }
 
 // Screen Sharing Logic
@@ -204,7 +262,7 @@ document.getElementById('shareScreenBtn').onclick = async () => {
 
         for (const viewerId of Object.keys(peers)) {
             const pc = peers[viewerId];
-            addTracksToPeer(pc);
+            addTracksToPeer(pc, screenStream);
             
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
