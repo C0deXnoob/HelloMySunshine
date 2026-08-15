@@ -4,7 +4,7 @@ let screenStream = null;
 let currentRoom = null;
 const peers = {};
 
-// Public Google STUN servers to bypass NAT across different cellular/Wi-Fi networks
+// Public STUN servers to bypass NAT across different networks
 const config = { 
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -23,11 +23,10 @@ document.getElementById('joinBtn').onclick = () => {
     socket.emit('join', currentRoom);
 };
 
-// When another device connects to the room
+// Handle incoming connection from viewer devices
 socket.on('user-joined', async ({ callerId }) => {
     const pc = createPeerConnection(callerId);
 
-    // If PC is already broadcasting screen + audio, push tracks to new connected device
     if (screenStream) {
         screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
     }
@@ -79,7 +78,7 @@ function createPeerConnection(callerId) {
         }
     };
 
-    // Receiving remote screen stream on secondary devices
+    // Receiving remote screen stream on viewer devices
     pc.ontrack = (event) => {
         const stream = event.streams[0];
         const remoteVideo = document.getElementById('remoteScreen');
@@ -90,23 +89,30 @@ function createPeerConnection(callerId) {
     return pc;
 }
 
-// PC Desktop Broadcast Trigger
+// Fixed PC Desktop Broadcast Trigger (Prevents Duplicate Audio Loops)
 document.getElementById('startBroadcastBtn').onclick = async () => {
     if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
         return alert("Movie broadcasting must be initiated from your Desktop PC.");
     }
 
     try {
-        // Request desktop screen and system audio
+        // Capture screen video and system audio only
         screenStream = await navigator.mediaDevices.getDisplayMedia({
             video: { displaySurface: "monitor" },
-            audio: { systemAudio: "include" }
+            audio: { 
+                systemAudio: "include",
+                echoCancellation: true,
+                noiseSuppression: true
+            }
         });
 
-        document.getElementById('remoteScreen').srcObject = screenStream;
+        // Mute local video element on host PC so sound doesn't echo locally out of your browser tab
+        const localVideo = document.getElementById('remoteScreen');
+        localVideo.srcObject = screenStream;
+        localVideo.muted = true; 
         document.getElementById('waitingState').classList.add('hidden');
 
-        // Distribute screen stream tracks to all connected viewing devices
+        // Send screen and clean system audio tracks to all viewing devices
         Object.keys(peers).forEach(callerId => {
             const pc = peers[callerId].pc;
             screenStream.getTracks().forEach(track => {
@@ -133,7 +139,10 @@ function stopBroadcast() {
         screenStream = null;
     }
 
-    document.getElementById('remoteScreen').srcObject = null;
+    const localVideo = document.getElementById('remoteScreen');
+    localVideo.srcObject = null;
+    localVideo.muted = false;
+
     document.getElementById('waitingState').classList.remove('hidden');
     document.getElementById('startBroadcastBtn').classList.remove('hidden');
     document.getElementById('stopBroadcastBtn').classList.add('hidden');
