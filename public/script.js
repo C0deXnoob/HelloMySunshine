@@ -6,6 +6,7 @@ let screenStream = null;
 // Maps each viewer socket ID to its own RTCPeerConnection instance
 const peers = {};
 
+// ICE Configuration with Metered TURN Relay for Cross-City Connectivity
 const config = {
     iceServers: [
         {
@@ -32,9 +33,10 @@ const config = {
             credential: "auhTPCKBx8KLH3Bj",
         },
     ],
+    iceTransportPolicy: 'all'
 };
 
-// 1. Host Path: Start Movie
+// 1. Host Action: Start Room
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -45,7 +47,7 @@ document.getElementById('startMovieBtn').onclick = () => {
     setupUI('Host');
 };
 
-// 2. Viewer Path: Join Room
+// 2. Viewer Action: Join Room
 document.getElementById('joinRoomBtn').onclick = () => {
     const room = document.getElementById('joinRoomInput').value.trim();
     if (!room) return alert('Enter room code');
@@ -58,9 +60,16 @@ document.getElementById('joinRoomBtn').onclick = () => {
 
 socket.on('error-msg', (msg) => alert(msg));
 
-// Real-time audience counter update
+// Update viewer counter
 socket.on('viewer-count-update', (count) => {
     document.getElementById('viewerCount').innerText = count;
+});
+
+// Auto-reconnect handshake for viewers on dropped connection
+socket.on('connect', () => {
+    if (!isHost && currentRoom) {
+        socket.emit('join-room', currentRoom);
+    }
 });
 
 function setupUI(role) {
@@ -76,7 +85,7 @@ function setupUI(role) {
     }
 }
 
-// Host: Dedicated peer connection per joining viewer
+// Host handling: Create isolated peer connection for every joining viewer
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
 
@@ -97,7 +106,7 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     socket.emit('offer', { target: viewerId, offer });
 });
 
-// Targeted WebRTC Signaling Handlers
+// Targeted Signaling Handlers
 socket.on('offer', async ({ offer, callerId }) => {
     if (isHost) return;
 
@@ -145,7 +154,6 @@ function createPeerConnection(targetId) {
         }
     };
 
-    // Viewer track receiver
     pc.ontrack = (event) => {
         const stream = event.streams[0];
         const videoElem = document.getElementById('theaterVideo');
@@ -155,7 +163,6 @@ function createPeerConnection(targetId) {
             videoElem.srcObject = stream;
         }
 
-        // Automatic playback trigger with fallback for mobile browser restrictions
         videoElem.play().catch(() => {
             videoElem.muted = true;
             videoElem.play();
@@ -172,7 +179,7 @@ function addTracksToPeer(pc) {
     });
 }
 
-// Host Screen Sharing Implementation
+// Screen Sharing Logic
 document.getElementById('shareScreenBtn').onclick = async () => {
     try {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -192,10 +199,9 @@ document.getElementById('shareScreenBtn').onclick = async () => {
 
         const videoElem = document.getElementById('theaterVideo');
         videoElem.srcObject = screenStream;
-        videoElem.muted = true; // Muted locally on host to avoid audio loopback
+        videoElem.muted = true;
         document.getElementById('waitingState').classList.add('hidden');
 
-        // Distribute screen stream across all connected viewers
         for (const viewerId of Object.keys(peers)) {
             const pc = peers[viewerId];
             addTracksToPeer(pc);
@@ -266,7 +272,7 @@ document.getElementById('fullscreenBtn').onclick = () => {
     }
 };
 
-// Picture-in-Picture Mode
+// Picture-in-Picture Trigger Button
 document.getElementById('pipBtn').onclick = async () => {
     const videoElem = document.getElementById('theaterVideo');
     try {
@@ -279,6 +285,32 @@ document.getElementById('pipBtn').onclick = async () => {
         console.error("Picture-in-Picture error:", err);
     }
 };
+
+// Auto Picture-in-Picture when tab/app is minimized
+document.addEventListener('visibilitychange', async () => {
+    const videoElem = document.getElementById('theaterVideo');
+    
+    if (document.visibilityState === 'hidden') {
+        if (videoElem && videoElem.srcObject && !document.pictureInPictureElement && document.pictureInPictureEnabled) {
+            try {
+                await videoElem.requestPictureInPicture();
+            } catch (err) {
+                console.error("Auto-PiP error:", err);
+            }
+        }
+    }
+});
+
+// MediaSession setup to prevent OS background stream suspension
+if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title: "Live Movie Theater",
+        artist: "Shared Watch Session",
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {});
+    navigator.mediaSession.setActionHandler('pause', () => {});
+}
 
 // Viewer Enable Audio Button
 document.getElementById('unmuteBtn').onclick = () => {
