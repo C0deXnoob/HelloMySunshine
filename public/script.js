@@ -98,13 +98,20 @@ document.getElementById('startBroadcastBtn').onclick = async () => {
     try {
         // Capture screen video and system audio only
         screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { displaySurface: "monitor" },
-            audio: { 
-                systemAudio: "include",
-                echoCancellation: true,
-                noiseSuppression: true
-            }
-        });
+    video: { 
+        displaySurface: "monitor",
+        width: { max: 1280 },
+        height: { max: 720 },
+        frameRate: { max: 30 }
+    },
+    audio: { 
+        systemAudio: "include",
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+        latency: 0 // Prioritize low latency audio
+    }
+});
 
         // Mute local video element on host PC so sound doesn't echo locally out of your browser tab
         const localVideo = document.getElementById('remoteScreen');
