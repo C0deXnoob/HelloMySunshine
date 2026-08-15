@@ -152,26 +152,35 @@ function createPeerConnection(targetId) {
     };
 
     pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        const track = event.track;
+        const remoteStream = event.streams[0];
+        const videoElem = document.getElementById('theaterVideo');
+        const remoteCamElem = document.getElementById('remoteCamVideo');
 
-        if (track.kind === 'video') {
-            const videoElem = document.getElementById('theaterVideo');
-            const remoteCamElem = document.getElementById('remoteCamVideo');
-
-            if (stream !== screenStream && remoteCamElem) {
-                remoteCamElem.srcObject = stream;
-                remoteCamElem.play().catch(() => {});
-            } else {
+        // Check if track is screen share or webcam stream
+        if (event.track.kind === 'video') {
+            // If the stream has multiple tracks or is marked as screen stream, show in main theater
+            if (remoteStream === screenStream || event.track.label.includes('screen') || event.track.label.includes('display')) {
                 document.getElementById('waitingState').classList.add('hidden');
-                if (videoElem.srcObject !== stream) videoElem.srcObject = stream;
+                videoElem.srcObject = remoteStream;
                 videoElem.play().catch(() => {
                     videoElem.muted = true;
                     videoElem.play();
                 });
+            } else {
+                // Route partner's webcam stream to the remote overlay window
+                if (remoteCamElem) {
+                    remoteCamElem.srcObject = remoteStream;
+                    remoteCamElem.play().catch(err => console.error("Remote cam play error:", err));
+                }
+            }
+        } else if (event.track.kind === 'audio') {
+            // Attach webcam audio directly to remote camera element
+            if (remoteCamElem && remoteStream !== screenStream) {
+                remoteCamElem.srcObject = remoteStream;
             }
         }
     };
+
     return pc;
 }
 
@@ -183,27 +192,45 @@ function addTracksToPeer(pc, stream) {
 // Camera Toggle
 document.getElementById('toggleCamBtn').onclick = async () => {
     const toggleCamBtn = document.getElementById('toggleCamBtn');
+    
     if (!localStream) {
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: true });
+            // Get local camera & mic
+            localStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480 }, 
+                audio: true 
+            });
+            
+            // Show your own camera preview locally
             document.getElementById('localCamVideo').srcObject = localStream;
 
-            for (const callerId of Object.keys(peers)) {
-                const pc = peers[callerId];
-                addTracksToPeer(pc, localStream);
+            // Add tracks to all active peer connections
+            for (const targetId of Object.keys(peers)) {
+                const pc = peers[targetId];
+                
+                // Add camera tracks to peer connection
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                });
+
+                // Trigger renegotiation offer
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                socket.emit('offer', { target: callerId, offer });
+                socket.emit('offer', { target: targetId, offer });
             }
+
             toggleCamBtn.innerText = "Stop Video Call";
             toggleCamBtn.classList.add('btn-danger');
         } catch (err) {
-            alert("Camera access denied or failed.");
+            console.error("Camera access error:", err);
+            alert("Unable to access camera or microphone.");
         }
     } else {
-        localStream.getTracks().forEach(t => t.stop());
+        // Stop local camera tracks
+        localStream.getTracks().forEach(track => track.stop());
         localStream = null;
         document.getElementById('localCamVideo').srcObject = null;
+        
         toggleCamBtn.innerText = "Start Video Call";
         toggleCamBtn.classList.remove('btn-danger');
     }
