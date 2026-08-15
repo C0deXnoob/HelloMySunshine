@@ -1,7 +1,8 @@
-// Replace with your actual Render URL
-const socket = io("https://hellomysunshine.onrender.com/"); 
+// Replace with your actual live Render deployment URL
+const socket = io("https://hellomysunshine.onrender.com"); 
 
 let localStream, peerConnection, currentRoom;
+let screenStream = null;
 let screenSender = null;
 
 const config = { 
@@ -57,15 +58,26 @@ function createPeerConnection() {
     // Send local camera & mic
     localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-    // Receive tracks (camera + screen share)
+    // Handle receiving remote tracks
     peerConnection.ontrack = (event) => {
         const stream = event.streams[0];
-        // Distinguish screen share track from main camera stream
-        if (event.track.kind === 'video' && event.streams[0].getVideoTracks().length > 1) {
+        // If the track is part of a stream with 2 video tracks OR label indicates screen, display in screen viewport
+        if (event.track.kind === 'video' && stream.getVideoTracks().length > 1) {
             document.getElementById('screenVideo').srcObject = stream;
             document.getElementById('screenContainer').classList.remove('hidden');
         } else {
             document.getElementById('remoteVideo').srcObject = stream;
+        }
+    };
+
+    // Automatic renegotiation when tracks are added/removed mid-call
+    peerConnection.onnegotiationneeded = async () => {
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', { offer, room: currentRoom });
+        } catch (err) {
+            console.error("Renegotiation error:", err);
         }
     };
 
@@ -74,14 +86,14 @@ function createPeerConnection() {
     };
 }
 
-// Screen Sharing (Desktop Browsers Only)
+// Screen Sharing Handler with Renegotiation
 document.getElementById('shareScreenBtn').onclick = async () => {
     if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
         return alert("Mobile browsers do not support screen sharing. Please share screen from a desktop PC.");
     }
 
     try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
             audio: { systemAudio: "include" }
         });
@@ -90,9 +102,9 @@ document.getElementById('shareScreenBtn').onclick = async () => {
         document.getElementById('screenVideo').srcObject = screenStream;
         document.getElementById('screenContainer').classList.remove('hidden');
 
-        // Add screen track as a separate track without replacing camera
         if (peerConnection) {
-            screenSender = peerConnection.addTrack(screenTrack, screenStream);
+            // Adding track triggers peerConnection.onnegotiationneeded automatically
+            screenSender = peerConnection.addTrack(screenTrack, localStream);
         }
 
         document.getElementById('shareScreenBtn').classList.add('hidden');
@@ -107,11 +119,18 @@ document.getElementById('shareScreenBtn').onclick = async () => {
 document.getElementById('stopShareBtn').onclick = stopScreenShare;
 
 function stopScreenShare() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+        screenStream = null;
+    }
+
+    document.getElementById('screenVideo').srcObject = null;
     document.getElementById('screenContainer').classList.add('hidden');
     document.getElementById('shareScreenBtn').classList.remove('hidden');
     document.getElementById('stopShareBtn').classList.add('hidden');
 
     if (screenSender && peerConnection) {
+        // Removing track triggers renegotiation to hide screen on remote peer
         peerConnection.removeTrack(screenSender);
         screenSender = null;
     }
