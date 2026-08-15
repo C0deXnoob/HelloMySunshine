@@ -8,12 +8,25 @@ const peers = {};
 
 const config = {
     iceServers: [
+        // STUN Servers (Finds public IP)
         { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        
+        // TURN Servers (Relays stream across different networks/cities)
         {
-            // Example TURN server configuration
-            urls: 'turn:your-turn-server.com:3478',
-            username: 'your-username',
-            credential: 'your-password'
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelay',
+            credential: 'openrelay'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelay',
+            credential: 'openrelay'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelay',
+            credential: 'openrelay'
         }
     ]
 };
