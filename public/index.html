@@ -3,65 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello My Sunshine - Movie Theater</title>
+    <title>Live Movie Theater & Chat</title>
     <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h2>Hello My Sunshine - Theater</h2>
 
-        <!-- Initial Option Landing Page -->
-        <div id="landing-page" class="card">
-            <h3>Choose Mode</h3>
-            <div class="option-grid">
-                <div class="option-card">
-                    <h4>Host a Movie</h4>
-                    <input type="text" id="hostRoomInput" placeholder="Create Room Code" />
-                    <button id="startMovieBtn" class="primary">Start Movie</button>
-                </div>
-                <div class="option-card">
-                    <h4>Watch Movie</h4>
-                    <input type="text" id="joinRoomInput" placeholder="Enter Room Code" />
-                    <button id="joinRoomBtn" class="secondary">Join Room</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Theater Page -->
-        <div id="theater-page" class="hidden">
-            <div class="theater-header">
-                <span id="roleBadge" class="badge">Viewer</span>
-                <span class="audience-tag">👥 Watching Now: <strong id="viewerCount">0</strong></span>
-            </div>
-
-            <div id="playerContainer" class="player-wrapper">
-                <video id="theaterVideo" autoplay playsinline></video>
-                <div id="waitingState" class="placeholder">
-                    <span>Host has not started sharing screen yet...</span>
-                </div>
-            </div>
-
-            <!-- Host Controls -->
-            <div id="hostControls" class="controls hidden">
-                <button id="shareScreenBtn" class="primary">Share Movie Screen & System Audio</button>
-                <button id="stopScreenBtn" class="danger hidden">Stop Broadcast</button>
-            </div>
-            
-            <!-- Viewer Controls -->
-            <div id="viewerControls" class="controls hidden">
-               <select id="qualitySelect" class="secondary-select">
-            <option value="auto">Quality: Auto</option>
-            <option value="1080">Full HD (1080p)</option>
-            <option value="480">480p</option>
-        </select>
-        <button id="fullscreenBtn" class="secondary">Fullscreen ⛶</button>
-        <button id="pipBtn" class="secondary">Minimize (PiP) 🗔</button>
-        <button id="unmuteBtn" class="primary">Enable Audio 🔊</button>
-    </div>
+    <!-- Identity Selection Modal -->
+    <div id="identityModal" class="modal-overlay">
+        <div class="modal-card">
+            <h2>Select Your Identity</h2>
+            <p>Who are you joining as today?</p>
+            <div class="identity-buttons">
+                <button class="btn btn-primary" onclick="selectIdentity('Your Bubu')">Your Bubu 🐻</button>
+                <button class="btn btn-secondary" onclick="selectIdentity('Your Dudu')">Your Dudu 🐰</button>
             </div>
         </div>
     </div>
+
+    <!-- Main Container -->
+    <div id="app" class="hidden">
+        <!-- Setup Page -->
+        <div id="landing-page" class="center-box">
+            <h1>Movie Night</h1>
+            <div class="card">
+                <h3>Host a Session</h3>
+                <input type="text" id="hostRoomInput" placeholder="Enter Room Code">
+                <button id="startMovieBtn" class="btn">Create Room</button>
+            </div>
+            <div class="card">
+                <h3>Join a Session</h3>
+                <input type="text" id="joinRoomInput" placeholder="Enter Room Code">
+                <button id="joinRoomBtn" class="btn">Join Room</button>
+            </div>
+        </div>
+
+        <!-- Main Theater Interface -->
+        <div id="theater-page" class="hidden layout-container">
+            <!-- Left Pane: Fixed Screen Share & Video Overlays -->
+            <div class="video-section">
+                <div id="playerContainer" class="video-container">
+                    <video id="theaterVideo" autoplay playsinline></video>
+                    
+                    <div id="waitingState" class="overlay-text">
+                        Waiting for host to share screen...
+                    </div>
+
+                    <!-- Video Call Overlays (Shown on Hover) -->
+                    <div class="cam-overlay-container">
+                        <div class="cam-box">
+                            <video id="localCamVideo" autoplay playsinline muted></video>
+                            <span class="cam-label" id="localCamLabel">You</span>
+                        </div>
+                        <div class="cam-box">
+                            <video id="remoteCamVideo" autoplay playsinline></video>
+                            <span class="cam-label" id="remoteCamLabel">Partner</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Control Bar -->
+                <div class="controls-bar">
+                    <span id="roleBadge" class="badge">Guest</span>
+                    <span class="badge">Viewers: <span id="viewerCount">0</span></span>
+                    
+                    <div id="hostControls" class="hidden inline-block">
+                        <button id="shareScreenBtn" class="btn">Share Screen</button>
+                        <button id="stopScreenBtn" class="btn btn-danger hidden">Stop Share</button>
+                    </div>
+
+                    <div id="viewerControls" class="hidden inline-block">
+                        <button id="unmuteBtn" class="btn">Enable Audio 🔊</button>
+                    </div>
+
+                    <button id="toggleCamBtn" class="btn">Start Video Call</button>
+                    <button id="pipBtn" class="btn">PiP</button>
+                    <button id="fullscreenBtn" class="btn">Fullscreen</button>
+                </div>
+            </div>
+
+            <!-- Right Pane: Live Chat Panel -->
+            <div class="chat-section">
+                <div class="chat-header">
+                    <h3>Live Chat</h3>
+                </div>
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Session messages render here dynamically -->
+                </div>
+                <form id="chatForm" class="chat-input-area">
+                    <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
+                    <button type="submit" class="btn">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
