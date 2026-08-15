@@ -1,137 +1,146 @@
-// Replace with your actual live Render deployment URL
-const socket = io("https://hellomysunshine.onrender.com"); 
+const socket = io("https://hellomysunshine.onrender.com");
 
-let localStream, peerConnection, currentRoom;
 let screenStream = null;
-let screenSender = null;
+let currentRoom = null;
+const peers = {};
 
+// Public Google STUN servers to bypass NAT across different cellular/Wi-Fi networks
 const config = { 
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
     ] 
 };
 
-document.getElementById('joinBtn').onclick = async () => {
+document.getElementById('joinBtn').onclick = () => {
     currentRoom = document.getElementById('roomInput').value.trim();
     if (!currentRoom) return alert('Enter room ID');
 
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        document.getElementById('localVideo').srcObject = localStream;
-        document.getElementById('room-selection').classList.add('hidden');
-        document.getElementById('call-container').classList.remove('hidden');
+    document.getElementById('room-selection').classList.add('hidden');
+    document.getElementById('stream-container').classList.remove('hidden');
 
-        socket.emit('join', currentRoom);
-    } catch (err) {
-        alert("Camera and Microphone access are required.");
-    }
+    socket.emit('join', currentRoom);
 };
 
-socket.on('user-connected', async () => {
-    createPeerConnection();
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    socket.emit('offer', { offer, room: currentRoom });
+// When another device connects to the room
+socket.on('user-joined', async ({ callerId }) => {
+    const pc = createPeerConnection(callerId);
+
+    // If PC is already broadcasting screen + audio, push tracks to new connected device
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+    }
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('offer', { target: callerId, offer });
 });
 
-socket.on('offer', async (data) => {
-    createPeerConnection();
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    socket.emit('answer', { answer, room: currentRoom });
+socket.on('offer', async ({ offer, callerId }) => {
+    const pc = createPeerConnection(callerId);
+
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+    }
+
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('answer', { target: callerId, answer });
 });
 
-socket.on('answer', async (data) => {
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+socket.on('answer', async ({ answer, callerId }) => {
+    if (peers[callerId]) {
+        await peers[callerId].pc.setRemoteDescription(new RTCSessionDescription(answer));
+    }
 });
 
-socket.on('ice-candidate', candidate => {
-    if (peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+socket.on('ice-candidate', async ({ candidate, callerId }) => {
+    if (peers[callerId]) {
+        await peers[callerId].pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
 });
 
-function createPeerConnection() {
-    if (peerConnection) return;
-    peerConnection = new RTCPeerConnection(config);
+socket.on('user-left', ({ callerId }) => {
+    if (peers[callerId]) {
+        peers[callerId].pc.close();
+        delete peers[callerId];
+    }
+});
 
-    // Send local camera & mic
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+function createPeerConnection(callerId) {
+    const pc = new RTCPeerConnection(config);
+    peers[callerId] = { pc, senders: [] };
 
-    // Handle receiving remote tracks
-    peerConnection.ontrack = (event) => {
+    pc.onicecandidate = (e) => {
+        if (e.candidate) {
+            socket.emit('ice-candidate', { target: callerId, candidate: e.candidate });
+        }
+    };
+
+    // Receiving remote screen stream on secondary devices
+    pc.ontrack = (event) => {
         const stream = event.streams[0];
-        // If the track is part of a stream with 2 video tracks OR label indicates screen, display in screen viewport
-        if (event.track.kind === 'video' && stream.getVideoTracks().length > 1) {
-            document.getElementById('screenVideo').srcObject = stream;
-            document.getElementById('screenContainer').classList.remove('hidden');
-        } else {
-            document.getElementById('remoteVideo').srcObject = stream;
-        }
+        const remoteVideo = document.getElementById('remoteScreen');
+        document.getElementById('waitingState').classList.add('hidden');
+        remoteVideo.srcObject = stream;
     };
 
-    // Automatic renegotiation when tracks are added/removed mid-call
-    peerConnection.onnegotiationneeded = async () => {
-        try {
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit('offer', { offer, room: currentRoom });
-        } catch (err) {
-            console.error("Renegotiation error:", err);
-        }
-    };
-
-    peerConnection.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { candidate: e.candidate, room: currentRoom });
-    };
+    return pc;
 }
 
-// Screen Sharing Handler with Renegotiation
-document.getElementById('shareScreenBtn').onclick = async () => {
+// PC Desktop Broadcast Trigger
+document.getElementById('startBroadcastBtn').onclick = async () => {
     if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
-        return alert("Mobile browsers do not support screen sharing. Please share screen from a desktop PC.");
+        return alert("Movie broadcasting must be initiated from your Desktop PC.");
     }
 
     try {
+        // Request desktop screen and system audio
         screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
+            video: { displaySurface: "monitor" },
             audio: { systemAudio: "include" }
         });
 
-        const screenTrack = screenStream.getVideoTracks()[0];
-        document.getElementById('screenVideo').srcObject = screenStream;
-        document.getElementById('screenContainer').classList.remove('hidden');
+        document.getElementById('remoteScreen').srcObject = screenStream;
+        document.getElementById('waitingState').classList.add('hidden');
 
-        if (peerConnection) {
-            // Adding track triggers peerConnection.onnegotiationneeded automatically
-            screenSender = peerConnection.addTrack(screenTrack, localStream);
-        }
+        // Distribute screen stream tracks to all connected viewing devices
+        Object.keys(peers).forEach(callerId => {
+            const pc = peers[callerId].pc;
+            screenStream.getTracks().forEach(track => {
+                const sender = pc.addTrack(track, screenStream);
+                peers[callerId].senders.push(sender);
+            });
+        });
 
-        document.getElementById('shareScreenBtn').classList.add('hidden');
-        document.getElementById('stopShareBtn').classList.remove('hidden');
+        document.getElementById('startBroadcastBtn').classList.add('hidden');
+        document.getElementById('stopBroadcastBtn').classList.remove('hidden');
 
-        screenTrack.onended = stopScreenShare;
+        screenStream.getVideoTracks()[0].onended = stopBroadcast;
+
     } catch (err) {
-        console.error("Screen share canceled or failed:", err);
+        console.error("Screen share start error:", err);
     }
 };
 
-document.getElementById('stopShareBtn').onclick = stopScreenShare;
+document.getElementById('stopBroadcastBtn').onclick = stopBroadcast;
 
-function stopScreenShare() {
+function stopBroadcast() {
     if (screenStream) {
         screenStream.getTracks().forEach(track => track.stop());
         screenStream = null;
     }
 
-    document.getElementById('screenVideo').srcObject = null;
-    document.getElementById('screenContainer').classList.add('hidden');
-    document.getElementById('shareScreenBtn').classList.remove('hidden');
-    document.getElementById('stopShareBtn').classList.add('hidden');
+    document.getElementById('remoteScreen').srcObject = null;
+    document.getElementById('waitingState').classList.remove('hidden');
+    document.getElementById('startBroadcastBtn').classList.remove('hidden');
+    document.getElementById('stopBroadcastBtn').classList.add('hidden');
 
-    if (screenSender && peerConnection) {
-        // Removing track triggers renegotiation to hide screen on remote peer
-        peerConnection.removeTrack(screenSender);
-        screenSender = null;
-    }
+    Object.keys(peers).forEach(callerId => {
+        const { pc, senders } = peers[callerId];
+        senders.forEach(sender => pc.removeTrack(sender));
+        peers[callerId].senders = [];
+    });
 }
