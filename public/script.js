@@ -1,49 +1,81 @@
 const socket = io("https://hellomysunshine.onrender.com");
 
-let screenStream = null;
 let currentRoom = null;
+let isHost = false;
+let screenStream = null;
 const peers = {};
 
-// Use Google STUN with WebRTC low-latency parameters
-const config = { 
+const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ],
-    iceTransportPolicy: 'all',
-    bundlePolicy: 'max-bundle', // Packs audio and video into a single network stream to eliminate sync offset
+    bundlePolicy: 'max-bundle',
     rtcpMuxPolicy: 'require'
 };
 
-document.getElementById('joinBtn').onclick = () => {
-    currentRoom = document.getElementById('roomInput').value.trim();
-    if (!currentRoom) return alert('Enter room ID');
+// 1. Host Path: Start Movie
+document.getElementById('startMovieBtn').onclick = () => {
+    const room = document.getElementById('hostRoomInput').value.trim();
+    if (!room) return alert('Enter a room code');
 
-    document.getElementById('room-selection').classList.add('hidden');
-    document.getElementById('stream-container').classList.remove('hidden');
+    currentRoom = room;
+    isHost = true;
+    socket.emit('create-room', room);
 
-    socket.emit('join', currentRoom);
+    setupUI('Host');
 };
 
-socket.on('user-joined', async ({ callerId }) => {
-    const pc = createPeerConnection(callerId);
+// 2. Viewer Path: Join Room
+document.getElementById('joinRoomBtn').onclick = () => {
+    const room = document.getElementById('joinRoomInput').value.trim();
+    if (!room) return alert('Enter room code');
+
+    currentRoom = room;
+    isHost = false;
+    socket.emit('join-room', room);
+
+    setupUI('Viewer');
+};
+
+socket.on('error-msg', (msg) => alert(msg));
+
+// Update Live Viewer Counter
+socket.on('viewer-count-update', (count) => {
+    document.getElementById('viewerCount').innerText = count;
+});
+
+function setupUI(role) {
+    document.getElementById('landing-page').classList.add('hidden');
+    document.getElementById('theater-page').classList.remove('hidden');
+    document.getElementById('roleBadge').innerText = role;
+
+    if (role === 'Host') {
+        document.getElementById('hostControls').classList.remove('hidden');
+    } else {
+        document.getElementById('viewerControls').classList.remove('hidden');
+        // Disable controls on viewer video player
+        document.getElementById('theaterVideo').controls = false; 
+    }
+}
+
+// Host WebRTC Signalling for incoming viewers
+socket.on('viewer-joined', async ({ viewerId }) => {
+    if (!isHost) return;
+    const pc = createPeerConnection(viewerId);
 
     if (screenStream) {
-        screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+        addSimulcastTracks(pc);
     }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socket.emit('offer', { target: callerId, offer });
+    socket.emit('offer', { target: viewerId, offer });
 });
 
 socket.on('offer', async ({ offer, callerId }) => {
+    if (isHost) return;
     const pc = createPeerConnection(callerId);
-
-    if (screenStream) {
-        screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
-    }
-
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -62,10 +94,10 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
     }
 });
 
-socket.on('user-left', ({ callerId }) => {
-    if (peers[callerId]) {
-        peers[callerId].pc.close();
-        delete peers[callerId];
+socket.on('viewer-left', ({ viewerId }) => {
+    if (peers[viewerId]) {
+        peers[viewerId].pc.close();
+        delete peers[viewerId];
     }
 });
 
@@ -74,85 +106,68 @@ function createPeerConnection(callerId) {
     peers[callerId] = { pc, senders: [] };
 
     pc.onicecandidate = (e) => {
-        if (e.candidate) {
-            socket.emit('ice-candidate', { target: callerId, candidate: e.candidate });
-        }
+        if (e.candidate) socket.emit('ice-candidate', { target: callerId, candidate: e.candidate });
     };
 
-    // Receiving remote screen stream on viewer devices
+    // Receiver Track Management (Zero-Latency + Perfect Sync)
     pc.ontrack = (event) => {
         const stream = event.streams[0];
-        const remoteVideo = document.getElementById('remoteScreen');
+        const videoElem = document.getElementById('theaterVideo');
         document.getElementById('waitingState').classList.add('hidden');
-        remoteVideo.srcObject = stream;
-
-        // Force zero-latency playback mode on receivers
-        remoteVideo.play();
-        if ('fastSeek' in remoteVideo) {
-            remoteVideo.fastSeek(remoteVideo.duration);
-        }
+        videoElem.srcObject = stream;
+        videoElem.play();
     };
 
     return pc;
 }
 
-// Low-Latency Broadcast Setup
-document.getElementById('startBroadcastBtn').onclick = async () => {
-    if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
-        return alert("Movie broadcasting must be initiated from your Desktop PC.");
-    }
+// Add tracks with dynamic quality (Simulcast / Adaptive Bitrates)
+function addSimulcastTracks(pc) {
+    screenStream.getTracks().forEach(track => {
+        if (track.kind === 'video') {
+            // Adaptive layers based on viewer connection speeds
+            pc.addTransceiver(track, {
+                direction: 'sendonly',
+                streams: [screenStream],
+                sendEncodings: [
+                    { rid: 'high', maxBitrate: 2500000 },
+                    { rid: 'low', maxBitrate: 500000, scaleResolutionDownBy: 2.0 }
+                ]
+            });
+        } else {
+            pc.addTrack(track, screenStream);
+        }
+    });
+}
 
+// Host Screen Sharing Controls
+document.getElementById('shareScreenBtn').onclick = async () => {
     try {
-        // Enforce strict low-latency video & audio constraints
         screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { 
-                displaySurface: "browser", // Tab capture provides lowest latency
-                width: { max: 1280, ideal: 1280 },
-                height: { max: 720, ideal: 720 },
-                frameRate: { max: 30, ideal: 30 }
-            },
-            audio: { 
-                systemAudio: "include",
-                autoGainControl: false,
-                echoCancellation: false,
-                noiseSuppression: false,
-                latency: 0
-            }
+            video: { displaySurface: "browser", width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
+            audio: { systemAudio: "include", autoGainControl: false, echoCancellation: false, noiseSuppression: false }
         });
 
-        const localVideo = document.getElementById('remoteScreen');
-        localVideo.srcObject = screenStream;
-        localVideo.muted = true; 
+        const videoElem = document.getElementById('theaterVideo');
+        videoElem.srcObject = screenStream;
+        videoElem.muted = true; // Prevents host speaker loopback
         document.getElementById('waitingState').classList.add('hidden');
 
-        // Apply bitrate limits to senders to prevent network buffer overflow
-        Object.keys(peers).forEach(callerId => {
-            const pc = peers[callerId].pc;
-            screenStream.getTracks().forEach(track => {
-                const sender = pc.addTrack(track, screenStream);
-                peers[callerId].senders.push(sender);
-
-                // Lower video encoding bitrate cap for smooth real-time delivery
-                if (track.kind === 'video') {
-                    const params = sender.getParameters();
-                    if (!params.encodings) params.encodings = [{}];
-                    params.encodings[0].maxBitrate = 2500000; // Cap at 2.5 Mbps
-                    sender.setParameters(params);
-                }
-            });
+        // Connect stream to all active viewers
+        Object.keys(peers).forEach(viewerId => {
+            addSimulcastTracks(peers[viewerId].pc);
         });
 
-        document.getElementById('startBroadcastBtn').classList.add('hidden');
-        document.getElementById('stopBroadcastBtn').classList.remove('hidden');
+        document.getElementById('shareScreenBtn').classList.add('hidden');
+        document.getElementById('stopScreenBtn').classList.remove('hidden');
 
         screenStream.getVideoTracks()[0].onended = stopBroadcast;
-
     } catch (err) {
-        console.error("Screen share start error:", err);
+        console.error("Screen share error:", err);
     }
 };
 
-document.getElementById('stopBroadcastBtn').onclick = stopBroadcast;
+document.getElementById('stopScreenBtn').onclick = stopBroadcast;
 
 function stopBroadcast() {
     if (screenStream) {
@@ -160,17 +175,17 @@ function stopBroadcast() {
         screenStream = null;
     }
 
-    const localVideo = document.getElementById('remoteScreen');
-    localVideo.srcObject = null;
-    localVideo.muted = false;
-
+    const videoElem = document.getElementById('theaterVideo');
+    videoElem.srcObject = null;
     document.getElementById('waitingState').classList.remove('hidden');
-    document.getElementById('startBroadcastBtn').classList.remove('hidden');
-    document.getElementById('stopBroadcastBtn').classList.add('hidden');
 
-    Object.keys(peers).forEach(callerId => {
-        const { pc, senders } = peers[callerId];
-        senders.forEach(sender => pc.removeTrack(sender));
-        peers[callerId].senders = [];
-    });
+    document.getElementById('shareScreenBtn').classList.remove('hidden');
+    document.getElementById('stopScreenBtn').classList.add('hidden');
 }
+
+// Unmute audio for mobile viewers blocked by browser policy
+document.getElementById('unmuteBtn').onclick = () => {
+    const videoElem = document.getElementById('theaterVideo');
+    videoElem.muted = false;
+    videoElem.play();
+};
