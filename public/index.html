@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Video & Screen Share</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>WebRTC Video Call & Screen Share</h2>
+        <div id="room-selection">
+            <input type="text" id="roomInput" placeholder="Enter Room ID" />
+            <button id="joinBtn">Join Room</button>
+        </div>
+        <div id="call-container" class="hidden">
+            <div class="video-grid">
+                <video id="localVideo" autoplay playsinline muted></video>
+                <video id="remoteVideo" autoplay playsinline></video>
+            </div>
+            <div class="controls">
+                <button id="shareScreenBtn">Share Screen with System Audio</button>
+                <button id="stopShareBtn" class="hidden">Stop Sharing</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

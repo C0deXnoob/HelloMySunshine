@@ -1,0 +1,13 @@
+{
+  "name": "webrtc-video-screenshare-app",
+  "version": "1.0.0",
+  "description": "Full WebRTC 1-on-1 video call and screen share web application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
