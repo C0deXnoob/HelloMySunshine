@@ -4,13 +4,15 @@ let screenStream = null;
 let currentRoom = null;
 const peers = {};
 
-// Public STUN servers to bypass NAT across different networks
+// Use Google STUN with WebRTC low-latency parameters
 const config = { 
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-    ] 
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ],
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle', // Packs audio and video into a single network stream to eliminate sync offset
+    rtcpMuxPolicy: 'require'
 };
 
 document.getElementById('joinBtn').onclick = () => {
@@ -23,7 +25,6 @@ document.getElementById('joinBtn').onclick = () => {
     socket.emit('join', currentRoom);
 };
 
-// Handle incoming connection from viewer devices
 socket.on('user-joined', async ({ callerId }) => {
     const pc = createPeerConnection(callerId);
 
@@ -84,47 +85,60 @@ function createPeerConnection(callerId) {
         const remoteVideo = document.getElementById('remoteScreen');
         document.getElementById('waitingState').classList.add('hidden');
         remoteVideo.srcObject = stream;
+
+        // Force zero-latency playback mode on receivers
+        remoteVideo.play();
+        if ('fastSeek' in remoteVideo) {
+            remoteVideo.fastSeek(remoteVideo.duration);
+        }
     };
 
     return pc;
 }
 
-// Fixed PC Desktop Broadcast Trigger (Prevents Duplicate Audio Loops)
+// Low-Latency Broadcast Setup
 document.getElementById('startBroadcastBtn').onclick = async () => {
     if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
         return alert("Movie broadcasting must be initiated from your Desktop PC.");
     }
 
     try {
-        // Capture screen video and system audio only
+        // Enforce strict low-latency video & audio constraints
         screenStream = await navigator.mediaDevices.getDisplayMedia({
-    video: { 
-        displaySurface: "monitor",
-        width: { max: 1280 },
-        height: { max: 720 },
-        frameRate: { max: 30 }
-    },
-    audio: { 
-        systemAudio: "include",
-        autoGainControl: false,
-        echoCancellation: false,
-        noiseSuppression: false,
-        latency: 0 // Prioritize low latency audio
-    }
-});
+            video: { 
+                displaySurface: "browser", // Tab capture provides lowest latency
+                width: { max: 1280, ideal: 1280 },
+                height: { max: 720, ideal: 720 },
+                frameRate: { max: 30, ideal: 30 }
+            },
+            audio: { 
+                systemAudio: "include",
+                autoGainControl: false,
+                echoCancellation: false,
+                noiseSuppression: false,
+                latency: 0
+            }
+        });
 
-        // Mute local video element on host PC so sound doesn't echo locally out of your browser tab
         const localVideo = document.getElementById('remoteScreen');
         localVideo.srcObject = screenStream;
         localVideo.muted = true; 
         document.getElementById('waitingState').classList.add('hidden');
 
-        // Send screen and clean system audio tracks to all viewing devices
+        // Apply bitrate limits to senders to prevent network buffer overflow
         Object.keys(peers).forEach(callerId => {
             const pc = peers[callerId].pc;
             screenStream.getTracks().forEach(track => {
                 const sender = pc.addTrack(track, screenStream);
                 peers[callerId].senders.push(sender);
+
+                // Lower video encoding bitrate cap for smooth real-time delivery
+                if (track.kind === 'video') {
+                    const params = sender.getParameters();
+                    if (!params.encodings) params.encodings = [{}];
+                    params.encodings[0].maxBitrate = 2500000; // Cap at 2.5 Mbps
+                    sender.setParameters(params);
+                }
             });
         });
 
