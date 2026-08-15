@@ -50,11 +50,15 @@
             
             <!-- Viewer Controls -->
             <div id="viewerControls" class="controls hidden">
-                <div class="viewer-btn-group">
-                    <button id="fullscreenBtn" class="secondary">Fullscreen ⛶</button>
-                    <button id="pipBtn" class="secondary">Minimize (PiP) 🗔</button>
-                    <button id="unmuteBtn" class="primary">Enable Audio 🔊</button>
-                </div>
+               <select id="qualitySelect" class="secondary-select">
+            <option value="auto">Quality: Auto</option>
+            <option value="1080">Full HD (1080p)</option>
+            <option value="480">480p</option>
+        </select>
+        <button id="fullscreenBtn" class="secondary">Fullscreen ⛶</button>
+        <button id="pipBtn" class="secondary">Minimize (PiP) 🗔</button>
+        <button id="unmuteBtn" class="primary">Enable Audio 🔊</button>
+    </div>
             </div>
         </div>
     </div>
