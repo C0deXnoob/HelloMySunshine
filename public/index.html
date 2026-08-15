@@ -3,30 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello My Sunshine - Movie Broadcast</title>
+    <title>Hello My Sunshine - Movie Theater</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
     <div class="container">
         <h2>Hello My Sunshine - Theater</h2>
-        
-        <div id="room-selection">
-            <input type="text" id="roomInput" placeholder="Enter Room Name" />
-            <button id="joinBtn">Enter Room</button>
+
+        <!-- Initial Option Landing Page -->
+        <div id="landing-page" class="card">
+            <h3>Choose Mode</h3>
+            <div class="option-grid">
+                <div class="option-card">
+                    <h4>Host a Movie</h4>
+                    <input type="text" id="hostRoomInput" placeholder="Create Room Code" />
+                    <button id="startMovieBtn" class="primary">Start Movie</button>
+                </div>
+                <div class="option-card">
+                    <h4>Watch Movie</h4>
+                    <input type="text" id="joinRoomInput" placeholder="Enter Room Code" />
+                    <button id="joinRoomBtn" class="secondary">Join Room</button>
+                </div>
+            </div>
         </div>
 
-        <div id="stream-container" class="hidden">
+        <!-- Theater Page -->
+        <div id="theater-page" class="hidden">
+            <div class="theater-header">
+                <span id="roleBadge" class="badge">Viewer</span>
+                <span class="audience-tag">👥 Watching Now: <strong id="viewerCount">0</strong></span>
+            </div>
+
             <div class="player-wrapper">
-                <video id="remoteScreen" autoplay playsinline controls></video>
+                <video id="theaterVideo" autoplay playsinline></video>
                 <div id="waitingState" class="placeholder">
-                    Waiting for PC to start screen share...
+                    <span>Host has not started sharing screen yet...</span>
                 </div>
             </div>
 
-            <div class="controls">
-                <button id="startBroadcastBtn" class="primary">Start Movie Stream (PC Only)</button>
-                <button id="stopBroadcastBtn" class="hidden danger">Stop Stream</button>
+            <div id="hostControls" class="controls hidden">
+                <button id="shareScreenBtn" class="primary">Share Movie Screen & System Audio</button>
+                <button id="stopScreenBtn" class="danger hidden">Stop Broadcast</button>
+            </div>
+            
+            <div id="viewerControls" class="controls hidden">
+                <p class="info-text">💡 If video is silent, click button below to enable mobile audio playback.</p>
+                <button id="unmuteBtn" class="secondary">Enable Audio</button>
             </div>
         </div>
     </div>
