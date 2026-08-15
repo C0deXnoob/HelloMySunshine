@@ -50,15 +50,17 @@
 
                     <!-- Video Call Overlays (Shown on Hover) -->
                     <div class="cam-overlay-container">
-                        <div class="cam-box">
-                            <video id="localCamVideo" autoplay playsinline muted></video>
-                            <span class="cam-label" id="localCamLabel">You</span>
-                        </div>
-                        <div class="cam-box">
-                            <video id="remoteCamVideo" autoplay playsinline></video>
-                            <span class="cam-label" id="remoteCamLabel">Partner</span>
-                        </div>
-                    </div>
+    <div class="cam-box">
+        <!-- Local Camera must be MUTED to prevent echo feedback -->
+        <video id="localCamVideo" autoplay playsinline muted></video>
+        <span class="cam-label" id="localCamLabel">You</span>
+    </div>
+    <div class="cam-box">
+        <!-- Remote Camera unmuted so you can hear your partner -->
+        <video id="remoteCamVideo" autoplay playsinline></video>
+        <span class="cam-label" id="remoteCamLabel">Partner</span>
+    </div>
+</div>
                 </div>
 
                 <!-- Control Bar -->
