@@ -2,6 +2,7 @@ let socket = null;
 let currentRoom = null;
 let userIdentity = "Your Bubu";
 let jitsiApi = null;
+let isHostUser = false;
 
 document.addEventListener("DOMContentLoaded", () => {
     
@@ -23,33 +24,50 @@ document.addEventListener("DOMContentLoaded", () => {
                 history.forEach(msg => renderChatMessage(msg));
             }
         });
+
+        // Listen for session end broadcast from host
+        socket.on('session-ended', () => {
+            alert('The host has ended this session.');
+            resetSession();
+        });
+
     } catch (e) {
         console.error("Socket Connection Error:", e);
     }
 
-    // Modal Identity Handlers
+    // Modal Identity Selectors
     document.getElementById('btnBubu').addEventListener('click', () => selectIdentity('Your Bubu'));
     document.getElementById('btnDudu').addEventListener('click', () => selectIdentity('Your Dudu'));
 
-    // Host / Join Actions
+    // Host / Join Handlers
     document.getElementById('startMovieBtn').onclick = () => {
         const room = document.getElementById('hostRoomInput').value.trim();
         if (!room) return alert('Enter a room code');
         currentRoom = room;
+        isHostUser = true;
         
         if (socket) socket.emit('create-room', { room, identity: userIdentity });
         setupUI('Host');
-        initJitsi(room, true);
+        initJitsi(room);
     };
 
     document.getElementById('joinRoomBtn').onclick = () => {
         const room = document.getElementById('joinRoomInput').value.trim();
         if (!room) return alert('Enter room code');
         currentRoom = room;
+        isHostUser = false;
         
         if (socket) socket.emit('join-room', { room, identity: userIdentity });
         setupUI('Viewer');
-        initJitsi(room, false);
+        initJitsi(room);
+    };
+
+    // End Session Button Handler
+    document.getElementById('endSessionBtn').onclick = () => {
+        if (!currentRoom || !isHostUser) return;
+        if (confirm("Are you sure you want to end this session for everyone?")) {
+            if (socket) socket.emit('end-session', { room: currentRoom });
+        }
     };
 
     // Chat Submission Handler
@@ -74,9 +92,9 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-function initJitsi(roomName, isHost) {
+function initJitsi(roomName) {
     const domain = 'meet.jit.si';
-    const safeRoom = `CodexNoobWatchparty_${roomName.replace(/\s+/g, '_')}`;
+    const safeRoom = `SunshineTheater_${roomName.replace(/\s+/g, '_')}`;
 
     const options = {
         roomName: safeRoom,
@@ -107,6 +125,31 @@ function setupUI(role) {
     document.getElementById('landing-page').classList.add('hidden');
     document.getElementById('theater-page').classList.remove('hidden');
     document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
+    
+    const endBtn = document.getElementById('endSessionBtn');
+    if (isHostUser) {
+        endBtn.classList.remove('hidden');
+    } else {
+        endBtn.classList.add('hidden');
+    }
+}
+
+function resetSession() {
+    if (jitsiApi) {
+        jitsiApi.dispose();
+        jitsiApi = null;
+    }
+    
+    document.getElementById('jitsi-container').innerHTML = '';
+    document.getElementById('chatMessages').innerHTML = '';
+    document.getElementById('hostRoomInput').value = '';
+    document.getElementById('joinRoomInput').value = '';
+    
+    currentRoom = null;
+    isHostUser = false;
+    
+    document.getElementById('theater-page').classList.add('hidden');
+    document.getElementById('landing-page').classList.remove('hidden');
 }
 
 function renderChatMessage({ sender, text }) {
