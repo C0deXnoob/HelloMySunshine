@@ -38,14 +38,17 @@ io.on('connection', (socket) => {
     });
 
     // Join Room (Viewer)
-    socket.on('join-room', ({ room, identity }) => {
-        socket.join(room);
-        rooms[room] = rooms[room] || { viewers: 0, history: [] };
-        rooms[room].viewers += 1;
+   socket.on('join-room', ({ room, identity }) => {
+    socket.join(room);
+    rooms[room] = rooms[room] || { viewers: 0, history: [] };
+    rooms[room].viewers += 1;
 
-        io.to(room).emit('viewer-count-update', rooms[room].viewers);
-        socket.emit('chat-history', rooms[room].history);
-    });
+    io.to(room).emit('viewer-count-update', rooms[room].viewers);
+    socket.emit('chat-history', rooms[room].history);
+    
+    // Notify host to trigger SDP offer
+    socket.to(room).emit('user-joined');
+});
 
     // WebRTC Signaling Relay
     socket.on('signal', (data) => {
