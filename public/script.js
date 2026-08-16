@@ -1,10 +1,11 @@
 const socket = io("https://hellomysunshine.onrender.com");
-const DAILY_ROOM_URL = "https://codexnoob.daily.co/CodexNoobWatchparty";
 
-let callFrame = null;
 let currentRoom = null;
 let isHost = false;
 let userIdentity = "Your Bubu";
+let screenStream = null;
+let peer = null;
+const activeCalls = {};
 
 function selectIdentity(name) {
     userIdentity = name;
@@ -12,26 +13,55 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-// Initialize Daily Call Frame inside player container
-function initDailyCall() {
-    const container = document.querySelector('.player-container');
-    container.innerHTML = ''; // Clear placeholders
-
-    callFrame = DailyIframe.createFrame(container, {
-        iframeStyle: {
-            width: '100%',
-            height: '100%',
-            border: '0',
-            borderRadius: '12px'
-        },
-        showLeaveButton: false,
-        showFullscreenButton: true
+// Setup PeerJS for Free Peer-to-Peer Traversal
+function initPeerServer(customId) {
+    peer = new Peer(customId, {
+        config: {
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun2.l.google.com:19302" },
+                { urls: "stun:stun3.l.google.com:19302" }
+            ]
+        }
     });
 
-    callFrame.join({ 
-        url: DAILY_ROOM_URL,
-        userName: userIdentity
+    // Handle incoming screen stream call on Viewer side
+    peer.on('call', (call) => {
+        call.answer(); // Answer incoming host broadcast
+        call.on('stream', (remoteStream) => {
+            const videoElem = document.getElementById('theaterVideo');
+            const waitingState = document.getElementById('waitingState');
+            
+            videoElem.srcObject = remoteStream;
+            videoElem.muted = false; // Always play audio
+            if (waitingState) waitingState.classList.add('hidden');
+
+            videoElem.play().catch(() => {
+                // Mobile Browser Autoplay safety fallback
+                videoElem.muted = true;
+                videoElem.play();
+                showTapToUnmuteOverlay(videoElem);
+            });
+        });
     });
+}
+
+function showTapToUnmuteOverlay(videoElem) {
+    let overlay = document.getElementById('unmuteOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'unmuteOverlay';
+        overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.8);display:flex;justify-content:center;align-items:center;color:#fff;font-weight:bold;z-index:100;cursor:pointer;padding:1rem;text-align:center;border-radius:12px;';
+        overlay.innerHTML = '🔊 Tap Screen to Enable Audio & Video';
+        document.querySelector('.player-container').appendChild(overlay);
+    }
+    
+    overlay.onclick = () => {
+        videoElem.muted = false;
+        videoElem.play();
+        overlay.remove();
+    };
 }
 
 // Room Controls
@@ -40,9 +70,11 @@ document.getElementById('startMovieBtn').onclick = () => {
     if (!room) return alert('Enter a room code');
     currentRoom = room;
     isHost = true;
+    
+    // Host peer ID is room-host
+    initPeerServer(`${room}-host`);
     socket.emit('create-room', { room, identity: userIdentity });
     setupUI('Host');
-    initDailyCall();
 };
 
 document.getElementById('joinRoomBtn').onclick = () => {
@@ -50,9 +82,11 @@ document.getElementById('joinRoomBtn').onclick = () => {
     if (!room) return alert('Enter room code');
     currentRoom = room;
     isHost = false;
+    
+    // Viewer peer ID is dynamic based on socket
+    initPeerServer(`${room}-viewer-${Math.floor(Math.random() * 1000)}`);
     socket.emit('join-room', { room, identity: userIdentity });
     setupUI('Viewer');
-    initDailyCall();
 };
 
 socket.on('error-msg', (msg) => alert(msg));
@@ -72,28 +106,59 @@ function setupUI(role) {
     }
 }
 
-// Daily Screen Share Engine
+// Host Screen Share Engine
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const stopScreenBtn = document.getElementById('stopScreenBtn');
 
 if (shareScreenBtn) {
     shareScreenBtn.onclick = async () => {
-        if (callFrame) {
-            await callFrame.startScreenShare();
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: "browser", width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: true
+            });
+
+            const videoElem = document.getElementById('theaterVideo');
+            videoElem.srcObject = screenStream;
+            videoElem.muted = true; // Local host display is muted to prevent echo
+            document.getElementById('waitingState')?.classList.add('hidden');
+
+            // Notify server that host started sharing
+            socket.emit('host-started-sharing', { room: currentRoom });
+
             shareScreenBtn.classList.add('hidden');
             if (stopScreenBtn) stopScreenBtn.classList.remove('hidden');
+
+            screenStream.getVideoTracks()[0].onended = stopBroadcast;
+        } catch (err) {
+            console.error("Screen Share Error:", err);
         }
     };
 }
 
+// When a viewer joins or requests stream, host calls the viewer
+socket.on('viewer-joined', ({ viewerPeerId }) => {
+    if (isHost && screenStream && viewerPeerId) {
+        const call = peer.call(viewerPeerId, screenStream);
+        activeCalls[viewerPeerId] = call;
+    }
+});
+
 if (stopScreenBtn) {
-    stopScreenBtn.onclick = async () => {
-        if (callFrame) {
-            await callFrame.stopScreenShare();
-            shareScreenBtn.classList.remove('hidden');
-            stopScreenBtn.classList.add('hidden');
-        }
-    };
+    stopScreenBtn.onclick = stopBroadcast;
+}
+
+function stopBroadcast() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        screenStream = null;
+    }
+    const videoElem = document.getElementById('theaterVideo');
+    if (videoElem) videoElem.srcObject = null;
+    
+    document.getElementById('waitingState')?.classList.remove('hidden');
+    if (shareScreenBtn) shareScreenBtn.classList.remove('hidden');
+    if (stopScreenBtn) stopScreenBtn.classList.add('hidden');
 }
 
 // Live Chat Engine
