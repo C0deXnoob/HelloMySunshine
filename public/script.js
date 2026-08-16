@@ -93,7 +93,7 @@ function selectIdentity(name) {
 }
 
 function initJitsi(roomName) {
-    const domain = 'meet.jit.si';
+    const domain = 'alpha.jitsi.net';
     const safeRoom = `SunshineTheater_${roomName.replace(/\s+/g, '_')}`;
 
     const options = {
