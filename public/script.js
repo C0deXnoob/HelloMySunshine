@@ -4,9 +4,8 @@ let currentRoom = null;
 let isHost = false;
 let userIdentity = "Your Bubu";
 let screenStream = null;
-const peers = {}; // Holds peer connections for every connected device
+const peers = {};
 
-// Optimized STUN / TURN Configuration
 const config = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -37,7 +36,7 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-// 1. Host Action
+// 1. Room Logic
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -47,7 +46,6 @@ document.getElementById('startMovieBtn').onclick = () => {
     setupUI('Host');
 };
 
-// 2. Viewer Action
 document.getElementById('joinRoomBtn').onclick = () => {
     const room = document.getElementById('joinRoomInput').value.trim();
     if (!room) return alert('Enter room code');
@@ -74,10 +72,20 @@ function setupUI(role) {
     }
 }
 
-// 3. Live Chat Logic
+// 2. Chat Logic & Mobile Drawer Controls
 const chatForm = document.getElementById('chatForm');
 const chatInput = document.getElementById('chatInput');
 const chatMessages = document.getElementById('chatMessages');
+const chatDrawer = document.getElementById('chatDrawer');
+const toggleChatBtn = document.getElementById('toggleChatBtn');
+const closeChatBtn = document.getElementById('closeChatBtn');
+
+if (toggleChatBtn) {
+    toggleChatBtn.onclick = () => chatDrawer.classList.toggle('open');
+}
+if (closeChatBtn) {
+    closeChatBtn.onclick = () => chatDrawer.classList.remove('open');
+}
 
 if (chatForm) {
     chatForm.onsubmit = (e) => {
@@ -105,11 +113,10 @@ function renderChatMessage({ sender, text }) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// 4. Multi-Device WebRTC Signaling Strategy
+// 3. WebRTC Signaling Engine
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
     
-    // Clean up existing stale peer connection if present
     if (peers[viewerId]) {
         peers[viewerId].close();
         delete peers[viewerId];
@@ -118,7 +125,6 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     const pc = createPeerConnection(viewerId);
     peers[viewerId] = pc;
 
-    // If host is already screen sharing, immediately bind tracks to new device connection
     if (screenStream) {
         addTracksToPeer(pc, screenStream);
     }
@@ -166,10 +172,10 @@ function createPeerConnection(targetId) {
         }
     };
 
-    // Route incoming remote screen stream directly into theater video element
     pc.ontrack = (event) => {
         const videoElem = document.getElementById('theaterVideo');
         const waitingState = document.getElementById('waitingState');
+        const unmuteBtn = document.getElementById('unmuteBtn');
 
         if (event.streams && event.streams[0]) {
             videoElem.srcObject = event.streams[0];
@@ -179,10 +185,19 @@ function createPeerConnection(targetId) {
 
         if (waitingState) waitingState.classList.add('hidden');
 
+        // Unmute Handling for Mobile Browsers
+        videoElem.muted = false;
         videoElem.play().catch(() => {
-            // Autoplay safety policy fallback: start muted
+            // If browser blocks unmuted autoplay, mute and show the explicit tap-to-unmute banner
             videoElem.muted = true;
             videoElem.play();
+            if (unmuteBtn) {
+                unmuteBtn.classList.remove('hidden');
+                unmuteBtn.onclick = () => {
+                    videoElem.muted = false;
+                    unmuteBtn.classList.add('hidden');
+                };
+            }
         });
     };
 
@@ -194,7 +209,7 @@ function addTracksToPeer(pc, stream) {
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
 }
 
-// 5. Screen Sharing Execution
+// 4. Host Screen Share Engine
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const stopScreenBtn = document.getElementById('stopScreenBtn');
 
@@ -202,17 +217,15 @@ if (shareScreenBtn) {
     shareScreenBtn.onclick = async () => {
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { displaySurface: "browser", width: { ideal: 1920 }, height: { ideal: 1080 } },
-                audio: { systemAudio: "include" }
+                video: { displaySurface: "browser", width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: true // Captures browser tab audio
             });
 
-            // Local Host Preview
             const videoElem = document.getElementById('theaterVideo');
             videoElem.srcObject = screenStream;
             videoElem.muted = true;
             document.getElementById('waitingState')?.classList.add('hidden');
 
-            // Broadcast tracks to ALL connected viewer devices simultaneously
             for (const viewerId of Object.keys(peers)) {
                 const pc = peers[viewerId];
                 addTracksToPeer(pc, screenStream);
@@ -224,10 +237,9 @@ if (shareScreenBtn) {
             shareScreenBtn.classList.add('hidden');
             if (stopScreenBtn) stopScreenBtn.classList.remove('hidden');
 
-            // Handle user clicking browser's built-in "Stop sharing" bar
             screenStream.getVideoTracks()[0].onended = stopBroadcast;
         } catch (err) {
-            console.error("Screen sharing failed:", err);
+            console.error("Screen sharing error:", err);
         }
     };
 }
