@@ -6,8 +6,6 @@
     <title>Sunshine Theater</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- Jitsi External API -->
-    <script src="https://meet.jit.si/external_api.js"></script>
 </head>
 <body>
 
@@ -65,12 +63,15 @@
 
             <div class="theater-layout">
                 
-                <!-- Video Screen Section (Jitsi Mount Point) -->
+                <!-- Video Screen Section -->
                 <div class="player-container">
-                    <div id="jitsi-container"></div>
+                    <video id="remoteVideo" autoplay playsinline controls></video>
+                    <div id="videoOverlay" class="video-overlay">
+                        <span>Waiting for Host to share screen...</span>
+                    </div>
                 </div>
 
-                <!-- Chat Section Directly Below Video -->
+                <!-- Chat Section -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
@@ -82,7 +83,6 @@
 
             </div>
 
-            <!-- Footer Controls -->
             <footer class="controls-bar">
                 <span class="status-text">Sunshine Theater • For You My Love</span>
             </footer>
