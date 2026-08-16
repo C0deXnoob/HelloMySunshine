@@ -6,14 +6,12 @@ let userIdentity = "Your Bubu";
 let screenStream = null;
 const peers = {};
 
-// Robust STUN/TURN fallback matrix for cross-network/ISP traversal
 const config = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
         { urls: "stun:stun2.l.google.com:19302" },
         { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
         {
             urls: "turn:openrelay.metered.ca:80",
             username: "openrelayproject",
@@ -39,7 +37,6 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-// Room Controls
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -72,11 +69,10 @@ function setupUI(role) {
 
     if (role === 'Host') {
         document.getElementById('hostControls').classList.remove('hidden');
-        videoElem.controls = false; // Host handles original stream
+        videoElem.controls = false;
     } else {
         document.getElementById('viewerControls').classList.remove('hidden');
-        // Disable controls on viewer side to prevent manual muting
-        videoElem.controls = false; 
+        videoElem.controls = false;
     }
 }
 
@@ -111,7 +107,7 @@ function renderChatMessage({ sender, text }) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// WebRTC Cross-Network Engine
+// WebRTC Signaling Protocol
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
     
@@ -124,7 +120,7 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     peers[viewerId] = pc;
 
     if (screenStream) {
-        addTracksToPeer(pc, screenStream);
+        screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
     }
 
     const offer = await pc.createOffer();
@@ -156,7 +152,7 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
         try {
             await peers[callerId].addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-            console.error("ICE error:", err);
+            console.error("ICE Candidate Error:", err);
         }
     }
 });
@@ -164,12 +160,6 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
 function createPeerConnection(targetId) {
     const pc = new RTCPeerConnection(config);
 
-    pc.oniceconnectionstatechange = () => {
-    console.log("ICE Connection State:", pc.iceConnectionState);
-    if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
-        console.error("Network blocked direct connection. TURN server required.");
-    }
-};
     pc.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit('ice-candidate', { target: targetId, candidate: e.candidate });
@@ -188,23 +178,40 @@ function createPeerConnection(targetId) {
 
         if (waitingState) waitingState.classList.add('hidden');
 
-        // Always force unmuted playback with audio
         videoElem.muted = false;
-        videoElem.play().catch(() => {
-            // Autoplay safety policy fallback
-            videoElem.play();
-        });
+        const playPromise = videoElem.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.catch(() => {
+                // Autoplay blocked by mobile browser - play muted first, un-mute on tap
+                videoElem.muted = true;
+                videoElem.play();
+                showTapToUnmuteOverlay(videoElem);
+            });
+        }
     };
 
     return pc;
 }
 
-function addTracksToPeer(pc, stream) {
-    if (!stream) return;
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+function showTapToUnmuteOverlay(videoElem) {
+    let overlay = document.getElementById('unmuteOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'unmuteOverlay';
+        overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.7);display:flex;justify-content:center;align-items:center;color:#fff;font-weight:bold;z-index:100;cursor:pointer;padding:1rem;text-align:center;';
+        overlay.innerHTML = '🔊 Tap Screen to Enable Video & Audio';
+        document.querySelector('.player-container').appendChild(overlay);
+    }
+    
+    overlay.onclick = () => {
+        videoElem.muted = false;
+        videoElem.play();
+        overlay.remove();
+    };
 }
 
-// Host Screen Share Engine
+// Host Screen Share Controls
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const stopScreenBtn = document.getElementById('stopScreenBtn');
 
@@ -213,21 +220,24 @@ if (shareScreenBtn) {
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: "browser", width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false
-                }
+                audio: true
             });
 
             const videoElem = document.getElementById('theaterVideo');
             videoElem.srcObject = screenStream;
-            videoElem.muted = true; // Local host preview is muted to prevent local echo
+            videoElem.muted = true;
             document.getElementById('waitingState')?.classList.add('hidden');
 
             for (const viewerId of Object.keys(peers)) {
                 const pc = peers[viewerId];
-                addTracksToPeer(pc, screenStream);
+                
+                // Clear old senders
+                const senders = pc.getSenders();
+                senders.forEach(sender => pc.removeSender(sender));
+
+                // Add new stream tracks
+                screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
                 socket.emit('offer', { target: viewerId, offer });
@@ -238,7 +248,7 @@ if (shareScreenBtn) {
 
             screenStream.getVideoTracks()[0].onended = stopBroadcast;
         } catch (err) {
-            console.error("Screen share error:", err);
+            console.error("Screen Share Error:", err);
         }
     };
 }
