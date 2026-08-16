@@ -97,26 +97,34 @@ function initJitsi(roomName) {
     const safeRoom = `SunshineTheater_${roomName.replace(/\s+/g, '_')}`;
 
     const options = {
-        roomName: safeRoom,
-        width: '100%',
-        height: '100%',
-        parentNode: document.querySelector('#jitsi-container'),
-        userInfo: {
-            displayName: userIdentity
-        },
-        configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            disableDeepLinking: true,
-            prejoinPageEnabled: false
-        },
-        interfaceConfigOverwrite: {
-            TOOLBAR_BUTTONS: [
-                'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
-            ],
-            SHOW_JITSI_WATERMARK: false
-        }
-    };
+    roomName: safeRoom,
+    width: '100%',
+    height: '100%',
+    parentNode: document.querySelector('#jitsi-container'),
+    userInfo: {
+        displayName: userIdentity
+    },
+    configOverwrite: {
+        startWithAudioMuted: false,
+        startWithVideoMuted: false,
+        disableDeepLinking: true,
+        prejoinPageEnabled: false,
+        // Add these lines to suppress promotional popups & overlays
+        hideConferenceTimer: false,
+        disableThirdPartyRequests: true,
+        doNotStoreRoom: true
+    },
+    interfaceConfigOverwrite: {
+        TOOLBAR_BUTTONS: [
+            'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
+        ],
+        SHOW_JITSI_WATERMARK: false,
+        SHOW_WATERMARK_FOR_GUESTS: false,
+        SHOW_BRAND_WATERMARK: false,
+        SHOW_POWERED_BY: false,
+        SHOW_PROMOTIONAL_CLOSE_PAGE: false
+    }
+};
 
     jitsiApi = new JitsiMeetExternalAPI(domain, options);
 }
