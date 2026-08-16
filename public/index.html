@@ -6,7 +6,8 @@
     <title>Watch Party</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Jitsi External API -->
+    <script src="https://meet.jit.si/external_api.js"></script>
 </head>
 <body>
 
@@ -49,16 +50,12 @@
 
             <div class="theater-layout">
                 
-                <!-- Video Screen Section -->
+                <!-- Video Screen Section (Jitsi Mount Point) -->
                 <div class="player-container">
-                    <div id="waitingState" class="waiting-placeholder">
-                        <p>Waiting for host to share screen...</p>
-                    </div>
-                    <video id="theaterVideo" autoplay playsinline></video>
-                    <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">⛶</button>
+                    <div id="jitsi-container"></div>
                 </div>
 
-                <!-- Chat Section -->
+                <!-- Chat Section Directly Below Video -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
@@ -72,13 +69,7 @@
 
             <!-- Footer Controls -->
             <footer class="controls-bar">
-                <div id="hostControls" class="hidden">
-                    <button id="shareScreenBtn" class="btn btn-primary">Start Sharing Screen</button>
-                    <button id="stopScreenBtn" class="btn btn-danger hidden">Stop Sharing</button>
-                </div>
-                <div id="viewerControls" class="hidden">
-                    <span class="status-text">Live Sync Active</span>
-                </div>
+                <span class="status-text">Live Sync Active</span>
             </footer>
 
         </div>
