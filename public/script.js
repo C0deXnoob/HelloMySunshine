@@ -3,7 +3,6 @@ let currentRoom = null;
 let userIdentity = "Your Bubu";
 let jitsiApi = null;
 
-// Attach event listeners after DOM content loads
 document.addEventListener("DOMContentLoaded", () => {
     
     // Connect Socket.io
@@ -28,11 +27,11 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Socket Connection Error:", e);
     }
 
-    // Identity Selectors
+    // Modal Identity Handlers
     document.getElementById('btnBubu').addEventListener('click', () => selectIdentity('Your Bubu'));
     document.getElementById('btnDudu').addEventListener('click', () => selectIdentity('Your Dudu'));
 
-    // Room Host/Join Action Handlers
+    // Host / Join Actions
     document.getElementById('startMovieBtn').onclick = () => {
         const room = document.getElementById('hostRoomInput').value.trim();
         if (!room) return alert('Enter a room code');
@@ -40,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
         
         if (socket) socket.emit('create-room', { room, identity: userIdentity });
         setupUI('Host');
-        initJitsi(room);
+        initJitsi(room, true);
     };
 
     document.getElementById('joinRoomBtn').onclick = () => {
@@ -50,10 +49,10 @@ document.addEventListener("DOMContentLoaded", () => {
         
         if (socket) socket.emit('join-room', { room, identity: userIdentity });
         setupUI('Viewer');
-        initJitsi(room);
+        initJitsi(room, false);
     };
 
-    // Chat Handler
+    // Chat Submission Handler
     const chatForm = document.getElementById('chatForm');
     if (chatForm) {
         chatForm.onsubmit = (e) => {
@@ -75,7 +74,7 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-function initJitsi(roomName) {
+function initJitsi(roomName, isHost) {
     const domain = 'meet.jit.si';
     const safeRoom = `CodexNoobWatchparty_${roomName.replace(/\s+/g, '_')}`;
 
