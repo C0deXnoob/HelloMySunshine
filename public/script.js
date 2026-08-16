@@ -7,7 +7,7 @@ let peerConnection = null;
 let localStream = null;
 let iceCandidateQueue = [];
 
-// Google STUN servers for cross-network connectivity
+// Public Google STUN servers for cross-network connectivity
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -39,7 +39,6 @@ document.addEventListener("DOMContentLoaded", () => {
             resetSession();
         });
 
-        // Whenever a new viewer joins, the host sends an offer
         socket.on('user-joined', () => {
             if (isHostUser && localStream) {
                 initiateOffer();
@@ -65,13 +64,21 @@ document.addEventListener("DOMContentLoaded", () => {
         isHostUser = true;
 
         try {
+            // Request display media with constraints enforcing echo cancellation
             localStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { frameRate: { ideal: 30, max: 60 } },
-                audio: true
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
             });
 
             const videoElem = document.getElementById('remoteVideo');
             videoElem.srcObject = localStream;
+            
+            // Host video must be muted locally so host doesn't hear double audio
+            videoElem.muted = true;
             document.getElementById('videoOverlay').style.display = 'none';
 
             if (socket) socket.emit('create-room', { room, identity: userIdentity });
@@ -143,7 +150,6 @@ function setupUI(role) {
     }
 }
 
-// WebRTC Handshake Setup
 function initPeerConnection() {
     if (peerConnection) return;
 
@@ -159,6 +165,8 @@ function initPeerConnection() {
         const videoElem = document.getElementById('remoteVideo');
         if (videoElem.srcObject !== event.streams[0]) {
             videoElem.srcObject = event.streams[0];
+            // Unmute for viewer so they hear the audio
+            videoElem.muted = false;
             document.getElementById('videoOverlay').style.display = 'none';
         }
     };
@@ -167,7 +175,6 @@ function initPeerConnection() {
 async function initiateOffer() {
     initPeerConnection();
     
-    // Attach stream tracks
     if (localStream) {
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
@@ -185,7 +192,6 @@ async function handleSignal(signal) {
     if (signal.sdp) {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         
-        // Process any queued ICE candidates after remote description is set
         while (iceCandidateQueue.length > 0) {
             const candidate = iceCandidateQueue.shift();
             await peerConnection.addIceCandidate(candidate);
@@ -220,6 +226,7 @@ function resetSession() {
     iceCandidateQueue = [];
     const videoElem = document.getElementById('remoteVideo');
     videoElem.srcObject = null;
+    videoElem.muted = false;
     document.getElementById('videoOverlay').style.display = 'flex';
 
     document.getElementById('chatMessages').innerHTML = '';
