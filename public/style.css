@@ -31,7 +31,7 @@ body {
     border-radius: 10px;
 }
 
-/* Modal UI */
+/* Modal Styling */
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -142,7 +142,7 @@ body {
     color: #f1f5f9;
 }
 
-/* Theater Layout */
+/* Theater View Layout */
 #theater-page {
     display: flex;
     flex-direction: column;
@@ -280,7 +280,7 @@ body {
     font-size: 0.85rem;
 }
 
-/* Desktop layout toggle */
+/* Responsive Desktop Switch */
 @media (min-width: 769px) {
     .theater-layout {
         flex-direction: row;
