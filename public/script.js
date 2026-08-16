@@ -5,8 +5,9 @@ let isHostUser = false;
 
 let peerConnection = null;
 let localStream = null;
+let iceCandidateQueue = [];
 
-// Public Google STUN servers for cross-network connectivity (Wi-Fi to 4G/5G)
+// Google STUN servers for cross-network connectivity
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -36,6 +37,13 @@ document.addEventListener("DOMContentLoaded", () => {
         socket.on('session-ended', () => {
             alert('The session has ended.');
             resetSession();
+        });
+
+        // Whenever a new viewer joins, the host sends an offer
+        socket.on('user-joined', () => {
+            if (isHostUser && localStream) {
+                initiateOffer();
+            }
         });
 
         socket.on('signal', async (data) => {
@@ -69,14 +77,13 @@ document.addEventListener("DOMContentLoaded", () => {
             if (socket) socket.emit('create-room', { room, identity: userIdentity });
             setupUI('Host');
 
-            // Automatically clean up when screen sharing stops via browser controls
             localStream.getVideoTracks()[0].onended = () => {
                 if (socket) socket.emit('end-session', { room: currentRoom });
                 resetSession();
             };
 
         } catch (err) {
-            alert("Screen sharing permission was denied or cancelled.");
+            alert("Screen sharing permission denied or cancelled.");
         }
     };
 
@@ -87,15 +94,16 @@ document.addEventListener("DOMContentLoaded", () => {
         currentRoom = room;
         isHostUser = false;
 
-        if (socket) socket.emit('join-room', { room, identity: userIdentity });
         setupUI('Viewer');
         initPeerConnection();
+
+        if (socket) socket.emit('join-room', { room, identity: userIdentity });
     };
 
     // End Session Handler
     document.getElementById('endSessionBtn').onclick = () => {
         if (!currentRoom || !isHostUser) return;
-        if (confirm("Are you sure you want to end this session for everyone?")) {
+        if (confirm("End session for everyone?")) {
             if (socket) socket.emit('end-session', { room: currentRoom });
             resetSession();
         }
@@ -135,7 +143,10 @@ function setupUI(role) {
     }
 }
 
+// WebRTC Handshake Setup
 function initPeerConnection() {
+    if (peerConnection) return;
+
     peerConnection = new RTCPeerConnection(rtcConfig);
 
     peerConnection.onicecandidate = (event) => {
@@ -151,31 +162,47 @@ function initPeerConnection() {
             document.getElementById('videoOverlay').style.display = 'none';
         }
     };
-
-    if (isHostUser && localStream) {
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-        createOffer();
-    }
 }
 
-async function createOffer() {
+async function initiateOffer() {
+    initPeerConnection();
+    
+    // Attach stream tracks
+    if (localStream) {
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+    }
+
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
     socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
 }
 
 async function handleSignal(signal) {
-    if (!peerConnection) initPeerConnection();
+    initPeerConnection();
 
     if (signal.sdp) {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        
+        // Process any queued ICE candidates after remote description is set
+        while (iceCandidateQueue.length > 0) {
+            const candidate = iceCandidateQueue.shift();
+            await peerConnection.addIceCandidate(candidate);
+        }
+
         if (signal.sdp.type === 'offer') {
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
         }
     } else if (signal.candidate) {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        const candidate = new RTCIceCandidate(signal.candidate);
+        if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+            await peerConnection.addIceCandidate(candidate);
+        } else {
+            iceCandidateQueue.push(candidate);
+        }
     }
 }
 
@@ -190,6 +217,7 @@ function resetSession() {
         peerConnection = null;
     }
 
+    iceCandidateQueue = [];
     const videoElem = document.getElementById('remoteVideo');
     videoElem.srcObject = null;
     document.getElementById('videoOverlay').style.display = 'flex';
