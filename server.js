@@ -1,252 +1,89 @@
-let socket = null;
-let currentRoom = null;
-let userIdentity = "Your Bubu";
-let isHostUser = false;
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const path = require('path');
 
-let peerConnection = null;
-let localStream = null;
-let iceCandidateQueue = [];
+const app = express();
+app.use(cors());
 
-// Public Google STUN servers for cross-network connectivity
-const rtcConfig = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-};
+// Serve static assets out of the 'public' folder
+app.use(express.static(path.join(__dirname, 'public')));
 
-document.addEventListener("DOMContentLoaded", () => {
-    
-    try {
-        socket = io("https://hellomysunshine.onrender.com");
-        
-        socket.on('viewer-count-update', (count) => {
-            const countElem = document.getElementById('viewerCount');
-            if (countElem) countElem.innerText = count;
-        });
+// Serve index.html on root request from inside 'public'
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-        socket.on('chat-message', (data) => renderChatMessage(data));
-        socket.on('chat-history', (history) => {
-            const chatMessages = document.getElementById('chatMessages');
-            if (chatMessages) {
-                chatMessages.innerHTML = '';
-                history.forEach(msg => renderChatMessage(msg));
-            }
-        });
-
-        socket.on('session-ended', () => {
-            alert('The session has ended.');
-            resetSession();
-        });
-
-        socket.on('user-joined', () => {
-            if (isHostUser && localStream) {
-                initiateOffer();
-            }
-        });
-
-        socket.on('signal', async (data) => {
-            handleSignal(data.signal);
-        });
-
-    } catch (e) {
-        console.error("Socket Connection Error:", e);
-    }
-
-    document.getElementById('btnBubu').onclick = () => selectIdentity('Your Bubu');
-    document.getElementById('btnDudu').onclick = () => selectIdentity('Your Dudu');
-
-    // Host Action
-    document.getElementById('startMovieBtn').onclick = async () => {
-        const room = document.getElementById('hostRoomInput').value.trim();
-        if (!room) return alert('Enter a room code');
-        currentRoom = room;
-        isHostUser = true;
-
-        try {
-            // Request display media with constraints enforcing echo cancellation
-            localStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { frameRate: { ideal: 30, max: 60 } },
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
-
-            const videoElem = document.getElementById('remoteVideo');
-            videoElem.srcObject = localStream;
-            
-            // Host video must be muted locally so host doesn't hear double audio
-            videoElem.muted = true;
-            document.getElementById('videoOverlay').style.display = 'none';
-
-            if (socket) socket.emit('create-room', { room, identity: userIdentity });
-            setupUI('Host');
-
-            localStream.getVideoTracks()[0].onended = () => {
-                if (socket) socket.emit('end-session', { room: currentRoom });
-                resetSession();
-            };
-
-        } catch (err) {
-            alert("Screen sharing permission denied or cancelled.");
-        }
-    };
-
-    // Viewer Action
-    document.getElementById('joinRoomBtn').onclick = () => {
-        const room = document.getElementById('joinRoomInput').value.trim();
-        if (!room) return alert('Enter room code');
-        currentRoom = room;
-        isHostUser = false;
-
-        setupUI('Viewer');
-        initPeerConnection();
-
-        if (socket) socket.emit('join-room', { room, identity: userIdentity });
-    };
-
-    // End Session Handler
-    document.getElementById('endSessionBtn').onclick = () => {
-        if (!currentRoom || !isHostUser) return;
-        if (confirm("End session for everyone?")) {
-            if (socket) socket.emit('end-session', { room: currentRoom });
-            resetSession();
-        }
-    };
-
-    // Chat Handler
-    const chatForm = document.getElementById('chatForm');
-    if (chatForm) {
-        chatForm.onsubmit = (e) => {
-            e.preventDefault();
-            const input = document.getElementById('chatInput');
-            const text = input.value.trim();
-            if (!text || !currentRoom) return;
-
-            if (socket) socket.emit('send-chat-message', { room: currentRoom, sender: userIdentity, text });
-            input.value = '';
-        };
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
     }
 });
 
-function selectIdentity(name) {
-    userIdentity = name;
-    document.getElementById('identityModal').style.display = 'none';
-    document.getElementById('app').classList.remove('hidden');
-}
+const rooms = {};
 
-function setupUI(role) {
-    document.getElementById('landing-page').classList.add('hidden');
-    document.getElementById('theater-page').classList.remove('hidden');
-    document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
-
-    const endBtn = document.getElementById('endSessionBtn');
-    if (isHostUser) {
-        endBtn.classList.remove('hidden');
-    } else {
-        endBtn.classList.add('hidden');
-    }
-}
-
-function initPeerConnection() {
-    if (peerConnection) return;
-
-    peerConnection = new RTCPeerConnection(rtcConfig);
-
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            socket.emit('signal', { room: currentRoom, signal: { candidate: event.candidate } });
-        }
-    };
-
-    peerConnection.ontrack = (event) => {
-        const videoElem = document.getElementById('remoteVideo');
-        if (videoElem.srcObject !== event.streams[0]) {
-            videoElem.srcObject = event.streams[0];
-            // Unmute for viewer so they hear the audio
-            videoElem.muted = false;
-            document.getElementById('videoOverlay').style.display = 'none';
-        }
-    };
-}
-
-async function initiateOffer() {
-    initPeerConnection();
+io.on('connection', (socket) => {
     
-    if (localStream) {
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
-    }
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
-}
-
-async function handleSignal(signal) {
-    initPeerConnection();
-
-    if (signal.sdp) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+    // Create Room (Host)
+    socket.on('create-room', ({ room, identity }) => {
+        socket.join(room);
+        rooms[room] = rooms[room] || { viewers: 0, history: [] };
+        rooms[room].viewers += 1;
         
-        while (iceCandidateQueue.length > 0) {
-            const candidate = iceCandidateQueue.shift();
-            await peerConnection.addIceCandidate(candidate);
+        io.to(room).emit('viewer-count-update', rooms[room].viewers);
+        socket.emit('chat-history', rooms[room].history);
+    });
+
+    // Join Room (Viewer)
+    socket.on('join-room', ({ room, identity }) => {
+        socket.join(room);
+        rooms[room] = rooms[room] || { viewers: 0, history: [] };
+        rooms[room].viewers += 1;
+
+        io.to(room).emit('viewer-count-update', rooms[room].viewers);
+        socket.emit('chat-history', rooms[room].history);
+
+        // Notify host to initiate peer offer
+        socket.to(room).emit('user-joined');
+    });
+
+    // WebRTC Signaling Relay
+    socket.on('signal', (data) => {
+        socket.to(data.room).emit('signal', {
+            signal: data.signal,
+            sender: socket.id
+        });
+    });
+
+    // Live Chat Handler
+    socket.on('send-chat-message', ({ room, sender, text }) => {
+        const msg = { sender, text };
+        if (rooms[room]) {
+            rooms[room].history.push(msg);
+            if (rooms[room].history.length > 50) rooms[room].history.shift();
         }
+        io.to(room).emit('chat-message', msg);
+    });
 
-        if (signal.sdp.type === 'offer') {
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
-        }
-    } else if (signal.candidate) {
-        const candidate = new RTCIceCandidate(signal.candidate);
-        if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
-            await peerConnection.addIceCandidate(candidate);
-        } else {
-            iceCandidateQueue.push(candidate);
-        }
-    }
-}
+    // End Session Handler
+    socket.on('end-session', ({ room }) => {
+        io.to(room).emit('session-ended');
+        delete rooms[room];
+    });
 
-function resetSession() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
+    // Disconnect Handler
+    socket.on('disconnecting', () => {
+        socket.rooms.forEach(room => {
+            if (rooms[room]) {
+                rooms[room].viewers = Math.max(0, rooms[room].viewers - 1);
+                io.to(room).emit('viewer-count-update', rooms[room].viewers);
+            }
+        });
+    });
+});
 
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-
-    iceCandidateQueue = [];
-    const videoElem = document.getElementById('remoteVideo');
-    videoElem.srcObject = null;
-    videoElem.muted = false;
-    document.getElementById('videoOverlay').style.display = 'flex';
-
-    document.getElementById('chatMessages').innerHTML = '';
-    document.getElementById('hostRoomInput').value = '';
-    document.getElementById('joinRoomInput').value = '';
-
-    currentRoom = null;
-    isHostUser = false;
-
-    document.getElementById('theater-page').classList.add('hidden');
-    document.getElementById('landing-page').classList.remove('hidden');
-}
-
-function renderChatMessage({ sender, text }) {
-    const chatMessages = document.getElementById('chatMessages');
-    if (!chatMessages) return;
-
-    const div = document.createElement('div');
-    div.className = 'chat-msg';
-    div.innerHTML = `<span class="sender">${sender}:</span><span>${text}</span>`;
-    chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
