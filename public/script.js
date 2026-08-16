@@ -5,7 +5,112 @@ let isHost = false;
 let userIdentity = "Your Bubu";
 let screenStream = null;
 let peer = null;
-let myPeerId = null;
+let myPeerId = null;const socket = io("https://hellomysunshine.onrender.com");
+
+let currentRoom = null;
+let userIdentity = "Your Bubu";
+let jitsiApi = null;
+
+function selectIdentity(name) {
+    userIdentity = name;
+    document.getElementById('identityModal').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+}
+
+// Embed Jitsi Frame with Custom Overlay Adjustments
+function initJitsi(roomName) {
+    const domain = 'meet.jit.si';
+    
+    // Ensure room name is uniquely formatted for Jitsi server routing
+    const safeRoom = `CodexNoobWatchparty_${roomName.replace(/\s+/g, '_')}`;
+
+    const options = {
+        roomName: safeRoom,
+        width: '100%',
+        height: '100%',
+        parentNode: document.querySelector('#jitsi-container'),
+        userInfo: {
+            displayName: userIdentity
+        },
+        configOverwrite: {
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            disableDeepLinking: true, // Prevents mobile browsers from forcing app download
+            prejoinPageEnabled: false
+        },
+        interfaceConfigOverwrite: {
+            TOOLBAR_BUTTONS: [
+                'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
+            ],
+            SHOW_JITSI_WATERMARK: false
+        }
+    };
+
+    jitsiApi = new JitsiMeetExternalAPI(domain, options);
+}
+
+// Room Controls
+document.getElementById('startMovieBtn').onclick = () => {
+    const room = document.getElementById('hostRoomInput').value.trim();
+    if (!room) return alert('Enter a room code');
+    currentRoom = room;
+    
+    socket.emit('create-room', { room, identity: userIdentity });
+    setupUI('Host');
+    initJitsi(room);
+};
+
+document.getElementById('joinRoomBtn').onclick = () => {
+    const room = document.getElementById('joinRoomInput').value.trim();
+    if (!room) return alert('Enter room code');
+    currentRoom = room;
+    
+    socket.emit('join-room', { room, identity: userIdentity });
+    setupUI('Viewer');
+    initJitsi(room);
+};
+
+socket.on('error-msg', (msg) => alert(msg));
+socket.on('viewer-count-update', (count) => {
+    document.getElementById('viewerCount').innerText = count;
+});
+
+function setupUI(role) {
+    document.getElementById('landing-page').classList.add('hidden');
+    document.getElementById('theater-page').classList.remove('hidden');
+    document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
+}
+
+// Live Chat Engine
+const chatForm = document.getElementById('chatForm');
+const chatInput = document.getElementById('chatInput');
+const chatMessages = document.getElementById('chatMessages');
+
+if (chatForm) {
+    chatForm.onsubmit = (e) => {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text || !currentRoom) return;
+
+        const msgData = { room: currentRoom, sender: userIdentity, text };
+        socket.emit('send-chat-message', msgData);
+        chatInput.value = '';
+    };
+}
+
+socket.on('chat-message', (data) => renderChatMessage(data));
+socket.on('chat-history', (history) => {
+    chatMessages.innerHTML = '';
+    history.forEach(msg => renderChatMessage(msg));
+});
+
+function renderChatMessage({ sender, text }) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `<span class="sender">${sender}:</span><span>${text}</span>`;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 
 function selectIdentity(name) {
     userIdentity = name;
