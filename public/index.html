@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Watch Party</title>
+    <title>Sunshine Theater</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <!-- Jitsi External API -->
@@ -14,7 +14,9 @@
     <!-- Identity Selection Modal -->
     <div id="identityModal" class="modal-overlay">
         <div class="modal-card">
-            <h2>Who is joining?</h2>
+            <h1 class="brand-title">Sunshine Theater</h1>
+            <p class="brand-caption">For You My Love</p>
+            <h2 class="modal-heading">Who is joining?</h2>
             <div class="identity-buttons">
                 <button id="btnBubu" class="btn btn-primary">Your Bubu</button>
                 <button id="btnDudu" class="btn btn-secondary">Your Dudu</button>
@@ -27,16 +29,23 @@
         
         <!-- Landing Page -->
         <div id="landing-page" class="card-container">
-            <div class="card">
-                <h3>Host a Movie</h3>
-                <input type="text" id="hostRoomInput" placeholder="Enter Room Name">
-                <button id="startMovieBtn" class="btn btn-primary">Start Broadcast</button>
+            <div class="brand-header">
+                <h1 class="brand-title">Sunshine Theater</h1>
+                <p class="brand-caption">For You My Love</p>
             </div>
 
-            <div class="card">
-                <h3>Join a Movie</h3>
-                <input type="text" id="joinRoomInput" placeholder="Enter Room Code">
-                <button id="joinRoomBtn" class="btn btn-secondary">Join Room</button>
+            <div class="cards-wrapper">
+                <div class="card">
+                    <h3>Host a Movie</h3>
+                    <input type="text" id="hostRoomInput" placeholder="Enter Room Name">
+                    <button id="startMovieBtn" class="btn btn-primary">Start Broadcast</button>
+                </div>
+
+                <div class="card">
+                    <h3>Join a Movie</h3>
+                    <input type="text" id="joinRoomInput" placeholder="Enter Room Code">
+                    <button id="joinRoomBtn" class="btn btn-secondary">Join Room</button>
+                </div>
             </div>
         </div>
 
@@ -44,8 +53,14 @@
         <div id="theater-page" class="hidden">
             
             <header class="theater-header">
-                <span id="roleBadge" class="badge"></span>
-                <span class="badge badge-viewers">Viewers: <span id="viewerCount">0</span></span>
+                <div class="header-left">
+                    <span class="theater-mini-logo">Sunshine Theater</span>
+                    <span id="roleBadge" class="badge"></span>
+                </div>
+                <div class="header-right">
+                    <span class="badge badge-viewers">Viewers: <span id="viewerCount">0</span></span>
+                    <button id="endSessionBtn" class="btn btn-danger hidden">End Session</button>
+                </div>
             </header>
 
             <div class="theater-layout">
@@ -55,20 +70,21 @@
                     <div id="jitsi-container"></div>
                 </div>
 
-                <!-- Live Chat Section directly below screen on mobile -->
+                <!-- Chat Section Directly Below Video -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
                     <form id="chatForm" class="chat-form">
                         <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
-                        <button type="submit" class="btn btn-primary">Send</button>
+                        <button type="submit" class="btn btn-primary btn-send">Send</button>
                     </form>
                 </div>
 
             </div>
 
+            <!-- Footer Controls -->
             <footer class="controls-bar">
-                <span class="status-text">Live Broadcast Sync Active</span>
+                <span class="status-text">Sunshine Theater • For You My Love</span>
             </footer>
 
         </div>
