@@ -6,7 +6,6 @@
     <title>Watch Party</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- Free Open-Source PeerJS SDK -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -56,9 +55,10 @@
                         <p>Waiting for host to share screen...</p>
                     </div>
                     <video id="theaterVideo" autoplay playsinline></video>
+                    <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">⛶</button>
                 </div>
 
-                <!-- Chat Section Directly Below Video -->
+                <!-- Chat Section -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
