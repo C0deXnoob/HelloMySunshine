@@ -1,8 +1,11 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -11,85 +14,64 @@ const io = new Server(server, {
     }
 });
 
-app.use(express.static('public'));
-
-const roomHistory = {}; // Stores chat messages per room
+const rooms = {};
 
 io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
-
-    // Create Room
+    
+    // Create Room (Host)
     socket.on('create-room', ({ room, identity }) => {
         socket.join(room);
-        socket.room = room;
-        socket.identity = identity;
-        if (!roomHistory[room]) roomHistory[room] = [];
-
-        io.to(room).emit('chat-history', roomHistory[room]);
-        updateViewerCount(room);
+        rooms[room] = rooms[room] || { viewers: 0, history: [] };
+        rooms[room].viewers += 1;
+        
+        io.to(room).emit('viewer-count-update', rooms[room].viewers);
+        socket.emit('chat-history', rooms[room].history);
     });
 
-    socket.on('viewer-peer-ready', ({ room, peerId }) => {
-    socket.to(room).emit('connect-viewer', { peerId });
-});
-
-socket.on('host-sharing-started', ({ room }) => {
-    socket.to(room).emit('host-is-sharing');
-});
-
-    // Join Room
+    // Join Room (Viewer)
     socket.on('join-room', ({ room, identity }) => {
         socket.join(room);
-        socket.room = room;
-        socket.identity = identity;
-        if (!roomHistory[room]) roomHistory[room] = [];
+        rooms[room] = rooms[room] || { viewers: 0, history: [] };
+        rooms[room].viewers += 1;
 
-        // Notify host that a new viewer joined so WebRTC stream can be negotiated
-        socket.to(room).emit('viewer-joined', { viewerId: socket.id });
-        io.to(room).emit('chat-history', roomHistory[room]);
-        updateViewerCount(room);
+        io.to(room).emit('viewer-count-update', rooms[room].viewers);
+        socket.emit('chat-history', rooms[room].history);
     });
 
-    // WebRTC Signaling (Offers, Answers, Candidates)
-    socket.on('offer', ({ target, offer }) => {
-        io.to(target).emit('offer', { offer, callerId: socket.id });
+    // WebRTC Signaling Relay
+    socket.on('signal', (data) => {
+        socket.to(data.room).emit('signal', {
+            signal: data.signal,
+            sender: socket.id
+        });
     });
 
-    socket.on('answer', ({ target, answer }) => {
-        io.to(target).emit('answer', { answer, callerId: socket.id });
-    });
-
-    socket.on('ice-candidate', ({ target, candidate }) => {
-        io.to(target).emit('ice-candidate', { candidate, callerId: socket.id });
-    });
-
-    // Chat Messaging
+    // Live Chat Handler
     socket.on('send-chat-message', ({ room, sender, text }) => {
         const msg = { sender, text };
-        if (!roomHistory[room]) roomHistory[room] = [];
-        roomHistory[room].push(msg);
-
-        // Keep last 100 messages in memory
-        if (roomHistory[room].length > 100) roomHistory[room].shift();
-
+        if (rooms[room]) {
+            rooms[room].history.push(msg);
+            if (rooms[room].history.length > 50) rooms[room].history.shift();
+        }
         io.to(room).emit('chat-message', msg);
     });
 
-    socket.on('disconnect', () => {
-        if (socket.room) {
-            updateViewerCount(socket.room);
-        }
-        console.log(`User disconnected: ${socket.id}`);
+    // End Session Handler
+    socket.on('end-session', ({ room }) => {
+        io.to(room).emit('session-ended');
+        delete rooms[room];
     });
 
-    function updateViewerCount(room) {
-        const clients = io.sockets.adapter.rooms.get(room);
-        const count = clients ? clients.size : 0;
-        io.to(room).emit('viewer-count-update', count);
-    }
+    // Disconnect Handler
+    socket.on('disconnecting', () => {
+        socket.rooms.forEach(room => {
+            if (rooms[room]) {
+                rooms[room].viewers = Math.max(0, rooms[room].viewers - 1);
+                io.to(room).emit('viewer-count-update', rooms[room].viewers);
+            }
+        });
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
