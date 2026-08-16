@@ -4,27 +4,28 @@ let currentRoom = null;
 let isHost = false;
 let userIdentity = "Your Bubu";
 let screenStream = null;
-let localStream = null;
-const peers = {};
+const peers = {}; // Holds peer connections for every connected device
 
-// Updated to OpenRelay (Free TURN Servers)
+// Optimized STUN / TURN Configuration
 const config = {
     iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
         { urls: "stun:openrelay.metered.ca:80" },
         {
             urls: "turn:openrelay.metered.ca:80",
-            username: "openrelay",
-            credential: "openrelay"
+            username: "openrelayproject",
+            credential: "openrelayproject"
         },
         {
             urls: "turn:openrelay.metered.ca:443",
-            username: "openrelay",
-            credential: "openrelay"
+            username: "openrelayproject",
+            credential: "openrelayproject"
         },
         {
             urls: "turn:openrelay.metered.ca:443?transport=tcp",
-            username: "openrelay",
-            credential: "openrelay"
+            username: "openrelayproject",
+            credential: "openrelayproject"
         }
     ],
     iceTransportPolicy: 'all'
@@ -34,8 +35,6 @@ function selectIdentity(name) {
     userIdentity = name;
     document.getElementById('identityModal').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
-    document.getElementById('localCamLabel').innerText = name;
-    document.getElementById('remoteCamLabel').innerText = name === "Your Bubu" ? "Your Dudu" : "Your Bubu";
 }
 
 // 1. Host Action
@@ -75,25 +74,24 @@ function setupUI(role) {
     }
 }
 
-// Live Chat Handling
+// 3. Live Chat Logic
 const chatForm = document.getElementById('chatForm');
 const chatInput = document.getElementById('chatInput');
 const chatMessages = document.getElementById('chatMessages');
 
-chatForm.onsubmit = (e) => {
-    e.preventDefault();
-    const text = chatInput.value.trim();
-    if (!text || !currentRoom) return;
+if (chatForm) {
+    chatForm.onsubmit = (e) => {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text || !currentRoom) return;
 
-    const msgData = { room: currentRoom, sender: userIdentity, text };
-    socket.emit('send-chat-message', msgData);
-    chatInput.value = '';
-};
+        const msgData = { room: currentRoom, sender: userIdentity, text };
+        socket.emit('send-chat-message', msgData);
+        chatInput.value = '';
+    };
+}
 
-socket.on('chat-message', (data) => {
-    renderChatMessage(data);
-});
-
+socket.on('chat-message', (data) => renderChatMessage(data));
 socket.on('chat-history', (history) => {
     chatMessages.innerHTML = '';
     history.forEach(msg => renderChatMessage(msg));
@@ -107,18 +105,23 @@ function renderChatMessage({ sender, text }) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// WebRTC Signaling
+// 4. Multi-Device WebRTC Signaling Strategy
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
+    
+    // Clean up existing stale peer connection if present
     if (peers[viewerId]) {
         peers[viewerId].close();
         delete peers[viewerId];
     }
+    
     const pc = createPeerConnection(viewerId);
     peers[viewerId] = pc;
 
-    if (screenStream) addTracksToPeer(pc, screenStream);
-    if (localStream) addTracksToPeer(pc, localStream);
+    // If host is already screen sharing, immediately bind tracks to new device connection
+    if (screenStream) {
+        addTracksToPeer(pc, screenStream);
+    }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -163,31 +166,24 @@ function createPeerConnection(targetId) {
         }
     };
 
+    // Route incoming remote screen stream directly into theater video element
     pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
         const videoElem = document.getElementById('theaterVideo');
-        const remoteCamElem = document.getElementById('remoteCamVideo');
+        const waitingState = document.getElementById('waitingState');
 
-        // Check if track is screen share or webcam stream
-        if (event.track.kind === 'video') {
-            if (remoteStream === screenStream || event.track.label.includes('screen') || event.track.label.includes('display')) {
-                document.getElementById('waitingState').classList.add('hidden');
-                videoElem.srcObject = remoteStream;
-                videoElem.play().catch(() => {
-                    videoElem.muted = true;
-                    videoElem.play();
-                });
-            } else {
-                if (remoteCamElem) {
-                    remoteCamElem.srcObject = remoteStream;
-                    remoteCamElem.play().catch(err => console.error("Remote cam play error:", err));
-                }
-            }
-        } else if (event.track.kind === 'audio') {
-            if (remoteCamElem && remoteStream !== screenStream) {
-                remoteCamElem.srcObject = remoteStream;
-            }
+        if (event.streams && event.streams[0]) {
+            videoElem.srcObject = event.streams[0];
+        } else {
+            videoElem.srcObject = new MediaStream([event.track]);
         }
+
+        if (waitingState) waitingState.classList.add('hidden');
+
+        videoElem.play().catch(() => {
+            // Autoplay safety policy fallback: start muted
+            videoElem.muted = true;
+            videoElem.play();
+        });
     };
 
     return pc;
@@ -198,85 +194,57 @@ function addTracksToPeer(pc, stream) {
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
 }
 
-// Camera Toggle
-document.getElementById('toggleCamBtn').onclick = async () => {
-    const toggleCamBtn = document.getElementById('toggleCamBtn');
-    
-    if (!localStream) {
+// 5. Screen Sharing Execution
+const shareScreenBtn = document.getElementById('shareScreenBtn');
+const stopScreenBtn = document.getElementById('stopScreenBtn');
+
+if (shareScreenBtn) {
+    shareScreenBtn.onclick = async () => {
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: 640, height: 480 }, 
-                audio: true 
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: "browser", width: { ideal: 1920 }, height: { ideal: 1080 } },
+                audio: { systemAudio: "include" }
             });
-            
-            document.getElementById('localCamVideo').srcObject = localStream;
 
-            for (const targetId of Object.keys(peers)) {
-                const pc = peers[targetId];
-                
-                localStream.getTracks().forEach(track => {
-                    pc.addTrack(track, localStream);
-                });
+            // Local Host Preview
+            const videoElem = document.getElementById('theaterVideo');
+            videoElem.srcObject = screenStream;
+            videoElem.muted = true;
+            document.getElementById('waitingState')?.classList.add('hidden');
 
+            // Broadcast tracks to ALL connected viewer devices simultaneously
+            for (const viewerId of Object.keys(peers)) {
+                const pc = peers[viewerId];
+                addTracksToPeer(pc, screenStream);
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                socket.emit('offer', { target: targetId, offer });
+                socket.emit('offer', { target: viewerId, offer });
             }
 
-            toggleCamBtn.innerText = "Stop Video Call";
-            toggleCamBtn.classList.add('btn-danger');
+            shareScreenBtn.classList.add('hidden');
+            if (stopScreenBtn) stopScreenBtn.classList.remove('hidden');
+
+            // Handle user clicking browser's built-in "Stop sharing" bar
+            screenStream.getVideoTracks()[0].onended = stopBroadcast;
         } catch (err) {
-            console.error("Camera access error:", err);
-            alert("Unable to access camera or microphone.");
+            console.error("Screen sharing failed:", err);
         }
-    } else {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-        document.getElementById('localCamVideo').srcObject = null;
-        
-        toggleCamBtn.innerText = "Start Video Call";
-        toggleCamBtn.classList.remove('btn-danger');
-    }
-};
+    };
+}
 
-// Screen Sharing Logic
-document.getElementById('shareScreenBtn').onclick = async () => {
-    try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { displaySurface: "browser", width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: { systemAudio: "include" }
-        });
-
-        const videoElem = document.getElementById('theaterVideo');
-        videoElem.srcObject = screenStream;
-        videoElem.muted = true;
-        document.getElementById('waitingState').classList.add('hidden');
-
-        for (const viewerId of Object.keys(peers)) {
-            const pc = peers[viewerId];
-            addTracksToPeer(pc, screenStream);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('offer', { target: viewerId, offer });
-        }
-
-        document.getElementById('shareScreenBtn').classList.add('hidden');
-        document.getElementById('stopScreenBtn').classList.remove('hidden');
-        screenStream.getVideoTracks()[0].onended = stopBroadcast;
-    } catch (err) {
-        console.error(err);
-    }
-};
-
-document.getElementById('stopScreenBtn').onclick = stopBroadcast;
+if (stopScreenBtn) {
+    stopScreenBtn.onclick = stopBroadcast;
+}
 
 function stopBroadcast() {
     if (screenStream) {
         screenStream.getTracks().forEach(t => t.stop());
         screenStream = null;
     }
-    document.getElementById('theaterVideo').srcObject = null;
-    document.getElementById('waitingState').classList.remove('hidden');
-    document.getElementById('shareScreenBtn').classList.remove('hidden');
-    document.getElementById('stopScreenBtn').classList.add('hidden');
+    const videoElem = document.getElementById('theaterVideo');
+    if (videoElem) videoElem.srcObject = null;
+    
+    document.getElementById('waitingState')?.classList.remove('hidden');
+    if (shareScreenBtn) shareScreenBtn.classList.remove('hidden');
+    if (stopScreenBtn) stopScreenBtn.classList.add('hidden');
 }
