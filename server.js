@@ -29,6 +29,14 @@ io.on('connection', (socket) => {
         updateViewerCount(room);
     });
 
+    socket.on('viewer-peer-ready', ({ room, peerId }) => {
+    socket.to(room).emit('connect-viewer', { peerId });
+});
+
+socket.on('host-sharing-started', ({ room }) => {
+    socket.to(room).emit('host-is-sharing');
+});
+
     // Join Room
     socket.on('join-room', ({ room, identity }) => {
         socket.join(room);
