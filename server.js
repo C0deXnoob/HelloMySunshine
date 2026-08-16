@@ -2,9 +2,18 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(cors());
+
+// Serve static assets out of the 'public' folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve index.html on root request from inside 'public'
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
