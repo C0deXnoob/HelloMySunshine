@@ -35,7 +35,7 @@ body {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(2, 6, 23, 0.85);
+    background: rgba(2, 6, 23, 0.9);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     display: flex;
@@ -198,7 +198,6 @@ body {
     height: 100%;
 }
 
-/* Chat directly below video on mobile */
 .chat-container {
     flex: 1;
     background: rgba(15, 23, 42, 0.85);
