@@ -2,13 +2,15 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
     background-color: #0b0f19;
     color: #f8fafc;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -19,23 +21,22 @@ body {
 /* Identity Modal */
 .modal-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    inset: 0;
     background: rgba(0, 0, 0, 0.85);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 1000;
+    padding: 1rem;
 }
 
 .modal-card {
     background: #1e293b;
-    padding: 2.5rem;
+    padding: 2rem;
     border-radius: 12px;
     text-align: center;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    width: 100%;
+    max-width: 360px;
 }
 
 .modal-card h2 {
@@ -45,31 +46,35 @@ body {
 
 .identity-buttons {
     display: flex;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 
-/* Landing Page Cards */
+/* Landing Page */
 .card-container {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 2rem;
+    gap: 1.5rem;
     height: 100vh;
+    height: 100dvh;
+    padding: 1rem;
 }
 
 .card {
     background: #1e293b;
-    padding: 2rem;
+    padding: 1.5rem;
     border-radius: 12px;
-    width: 300px;
+    width: 100%;
+    max-width: 340px;
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 .card input {
-    padding: 0.75rem;
+    padding: 0.85rem;
     border-radius: 6px;
     border: 1px solid #334155;
     background: #0f172a;
@@ -79,46 +84,24 @@ body {
 
 /* Buttons */
 .btn {
-    padding: 0.75rem 1.25rem;
+    padding: 0.85rem 1.25rem;
     border: none;
     border-radius: 6px;
     font-weight: 600;
+    font-size: 0.95rem;
     cursor: pointer;
-    transition: background 0.2s ease;
 }
 
-.btn-primary {
-    background: #2563eb;
-    color: #ffffff;
-}
+.btn-primary { background: #2563eb; color: #ffffff; }
+.btn-secondary { background: #475569; color: #ffffff; }
+.btn-danger { background: #dc2626; color: #ffffff; }
 
-.btn-primary:hover {
-    background: #1d4ed8;
-}
-
-.btn-secondary {
-    background: #475569;
-    color: #ffffff;
-}
-
-.btn-secondary:hover {
-    background: #334155;
-}
-
-.btn-danger {
-    background: #dc2626;
-    color: #ffffff;
-}
-
-.btn-danger:hover {
-    background: #b91c1c;
-}
-
-/* Theater View Layout */
+/* Theater Layout */
 #theater-page {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
 }
 
 .theater-header {
@@ -127,52 +110,67 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 1.5rem;
+    padding: 0 1rem;
     border-bottom: 1px solid #334155;
 }
 
 .badge {
     background: #334155;
-    padding: 4px 12px;
+    padding: 4px 10px;
     border-radius: 20px;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: 0.8rem;
 }
 
-.badge-viewers {
-    background: #059669;
-}
+.badge-viewers { background: #059669; }
 
 .theater-layout {
     flex: 1;
     display: flex;
-    height: calc(100vh - 110px);
-    background: #000000;
+    position: relative;
+    overflow: hidden;
+    background: #000;
 }
 
 .player-container {
     flex: 1;
     position: relative;
-    background: #000000;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: #000;
 }
 
 #theaterVideo {
     width: 100%;
     height: 100%;
+    max-height: 100%;
     object-fit: contain;
 }
 
 .waiting-placeholder {
     position: absolute;
     color: #94a3b8;
-    font-size: 1.2rem;
+    font-size: 1rem;
     text-align: center;
+    padding: 1rem;
 }
 
-/* Live Chat Styling */
+/* Mobile Unmute Overlay */
+.unmute-banner {
+    position: absolute;
+    top: 15px;
+    z-index: 50;
+    background: #2563eb;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 25px;
+    border: none;
+    font-weight: bold;
+    font-size: 0.9rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+/* Chat Responsive Drawer */
 .chat-container {
     width: 320px;
     background: #0f172a;
@@ -182,10 +180,21 @@ body {
 }
 
 .chat-header {
-    padding: 1rem;
+    padding: 0.85rem 1rem;
     background: #1e293b;
     font-weight: bold;
-    border-bottom: 1px solid #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.close-chat-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
 }
 
 .chat-messages {
@@ -198,8 +207,8 @@ body {
 }
 
 .chat-msg {
-    font-size: 0.9rem;
-    line-height: 1.4;
+    font-size: 0.875rem;
+    word-break: break-word;
 }
 
 .chat-msg .sender {
@@ -209,7 +218,7 @@ body {
 }
 
 .chat-form {
-    padding: 1rem;
+    padding: 0.75rem;
     display: flex;
     gap: 0.5rem;
     border-top: 1px solid #1e293b;
@@ -217,11 +226,12 @@ body {
 
 .chat-form input {
     flex: 1;
-    padding: 0.5rem;
+    padding: 0.6rem;
     border-radius: 4px;
     border: 1px solid #334155;
     background: #1e293b;
     color: #ffffff;
+    font-size: 0.9rem;
 }
 
 /* Footer Controls */
@@ -230,11 +240,49 @@ body {
     background: #1e293b;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    padding: 0 1rem;
     border-top: 1px solid #334155;
+}
+
+.btn-chat-toggle {
+    display: none;
+    background: #334155;
+    color: #fff;
 }
 
 .status-text {
     color: #94a3b8;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+}
+
+/* Android & Smartphone Breakpoints */
+@media (max-width: 768px) {
+    .card-container {
+        flex-direction: column;
+    }
+
+    .btn-chat-toggle {
+        display: block;
+    }
+
+    .close-chat-btn {
+        display: block;
+    }
+
+    .chat-container {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 100%;
+        max-width: 320px;
+        z-index: 100;
+        transform: translateX(100%);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    .chat-container.open {
+        transform: translateX(0);
+    }
 }
