@@ -1,16 +1,24 @@
 let socket = null;
 let currentRoom = null;
 let userIdentity = "Your Bubu";
-let jitsiApi = null;
 let isHostUser = false;
+
+let peerConnection = null;
+let localStream = null;
+
+// Public Google STUN servers for cross-network connectivity (Wi-Fi to 4G/5G)
+const rtcConfig = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     
-    // Connect Socket.io
     try {
         socket = io("https://hellomysunshine.onrender.com");
         
-        socket.on('error-msg', (msg) => alert(msg));
         socket.on('viewer-count-update', (count) => {
             const countElem = document.getElementById('viewerCount');
             if (countElem) countElem.innerText = count;
@@ -25,68 +33,85 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
 
-        // Listen for session end broadcast from host
         socket.on('session-ended', () => {
-            alert('The host has ended this session.');
+            alert('The session has ended.');
             resetSession();
+        });
+
+        socket.on('signal', async (data) => {
+            handleSignal(data.signal);
         });
 
     } catch (e) {
         console.error("Socket Connection Error:", e);
     }
 
-    // Modal Identity Selectors
-    document.getElementById('btnBubu').addEventListener('click', () => selectIdentity('Your Bubu'));
-    document.getElementById('btnDudu').addEventListener('click', () => selectIdentity('Your Dudu'));
+    document.getElementById('btnBubu').onclick = () => selectIdentity('Your Bubu');
+    document.getElementById('btnDudu').onclick = () => selectIdentity('Your Dudu');
 
-    // Host / Join Handlers
-    document.getElementById('startMovieBtn').onclick = () => {
+    // Host Action
+    document.getElementById('startMovieBtn').onclick = async () => {
         const room = document.getElementById('hostRoomInput').value.trim();
         if (!room) return alert('Enter a room code');
         currentRoom = room;
         isHostUser = true;
-        
-        if (socket) socket.emit('create-room', { room, identity: userIdentity });
-        setupUI('Host');
-        initJitsi(room);
+
+        try {
+            localStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { frameRate: { ideal: 30, max: 60 } },
+                audio: true
+            });
+
+            const videoElem = document.getElementById('remoteVideo');
+            videoElem.srcObject = localStream;
+            document.getElementById('videoOverlay').style.display = 'none';
+
+            if (socket) socket.emit('create-room', { room, identity: userIdentity });
+            setupUI('Host');
+
+            // Automatically clean up when screen sharing stops via browser controls
+            localStream.getVideoTracks()[0].onended = () => {
+                if (socket) socket.emit('end-session', { room: currentRoom });
+                resetSession();
+            };
+
+        } catch (err) {
+            alert("Screen sharing permission was denied or cancelled.");
+        }
     };
 
+    // Viewer Action
     document.getElementById('joinRoomBtn').onclick = () => {
         const room = document.getElementById('joinRoomInput').value.trim();
         if (!room) return alert('Enter room code');
         currentRoom = room;
         isHostUser = false;
-        
+
         if (socket) socket.emit('join-room', { room, identity: userIdentity });
         setupUI('Viewer');
-        initJitsi(room);
+        initPeerConnection();
     };
 
-    // Force End Session Handler (Host Only)
+    // End Session Handler
     document.getElementById('endSessionBtn').onclick = () => {
         if (!currentRoom || !isHostUser) return;
-        
         if (confirm("Are you sure you want to end this session for everyone?")) {
-            // 1. Notify all viewers via socket first
             if (socket) socket.emit('end-session', { room: currentRoom });
-            
-            // 2. Immediately tear down host session locally
             resetSession();
         }
     };
 
-    // Chat Submission Handler
+    // Chat Handler
     const chatForm = document.getElementById('chatForm');
     if (chatForm) {
         chatForm.onsubmit = (e) => {
             e.preventDefault();
-            const chatInput = document.getElementById('chatInput');
-            const text = chatInput.value.trim();
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
             if (!text || !currentRoom) return;
 
-            const msgData = { room: currentRoom, sender: userIdentity, text };
-            if (socket) socket.emit('send-chat-message', msgData);
-            chatInput.value = '';
+            if (socket) socket.emit('send-chat-message', { room: currentRoom, sender: userIdentity, text });
+            input.value = '';
         };
     }
 });
@@ -97,47 +122,11 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-function initJitsi(roomName) {
-    const domain = 'alpha.jitsi.net';
-    const safeRoom = `SunshineTheater_${roomName.replace(/\s+/g, '_')}`;
-
-    const options = {
-        roomName: safeRoom,
-        width: '100%',
-        height: '100%',
-        parentNode: document.querySelector('#jitsi-container'),
-        userInfo: {
-            displayName: userIdentity
-        },
-        configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            disableDeepLinking: true,
-            prejoinPageEnabled: false,
-            hideConferenceTimer: false,
-            disableThirdPartyRequests: true,
-            doNotStoreRoom: true
-        },
-        interfaceConfigOverwrite: {
-            TOOLBAR_BUTTONS: [
-                'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
-            ],
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_WATERMARK_FOR_GUESTS: false,
-            SHOW_BRAND_WATERMARK: false,
-            SHOW_POWERED_BY: false,
-            SHOW_PROMOTIONAL_CLOSE_PAGE: false
-        }
-    };
-
-    jitsiApi = new JitsiMeetExternalAPI(domain, options);
-}
-
 function setupUI(role) {
     document.getElementById('landing-page').classList.add('hidden');
     document.getElementById('theater-page').classList.remove('hidden');
     document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
-    
+
     const endBtn = document.getElementById('endSessionBtn');
     if (isHostUser) {
         endBtn.classList.remove('hidden');
@@ -146,35 +135,72 @@ function setupUI(role) {
     }
 }
 
-// Complete Teardown & Reset
-function resetSession() {
-    // 1. Force Jitsi Call Hangup
-    if (jitsiApi) {
-        try {
-            jitsiApi.executeCommand('hangup');
-            jitsiApi.dispose();
-        } catch (err) {
-            console.warn("Jitsi cleanup warning:", err);
+function initPeerConnection() {
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+            socket.emit('signal', { room: currentRoom, signal: { candidate: event.candidate } });
         }
-        jitsiApi = null;
+    };
+
+    peerConnection.ontrack = (event) => {
+        const videoElem = document.getElementById('remoteVideo');
+        if (videoElem.srcObject !== event.streams[0]) {
+            videoElem.srcObject = event.streams[0];
+            document.getElementById('videoOverlay').style.display = 'none';
+        }
+    };
+
+    if (isHostUser && localStream) {
+        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        createOffer();
     }
-    
-    // 2. Wipe iframe node completely from DOM
-    const container = document.getElementById('jitsi-container');
-    if (container) {
-        container.innerHTML = '';
+}
+
+async function createOffer() {
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
+}
+
+async function handleSignal(signal) {
+    if (!peerConnection) initPeerConnection();
+
+    if (signal.sdp) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        if (signal.sdp.type === 'offer') {
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
+        }
+    } else if (signal.candidate) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
     }
-    
-    // 3. Clear inputs & chat state
+}
+
+function resetSession() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+
+    const videoElem = document.getElementById('remoteVideo');
+    videoElem.srcObject = null;
+    document.getElementById('videoOverlay').style.display = 'flex';
+
     document.getElementById('chatMessages').innerHTML = '';
     document.getElementById('hostRoomInput').value = '';
     document.getElementById('joinRoomInput').value = '';
-    
-    // 4. Reset variables
+
     currentRoom = null;
     isHostUser = false;
-    
-    // 5. Switch screen back to home
+
     document.getElementById('theater-page').classList.add('hidden');
     document.getElementById('landing-page').classList.remove('hidden');
 }
@@ -182,7 +208,7 @@ function resetSession() {
 function renderChatMessage({ sender, text }) {
     const chatMessages = document.getElementById('chatMessages');
     if (!chatMessages) return;
-    
+
     const div = document.createElement('div');
     div.className = 'chat-msg';
     div.innerHTML = `<span class="sender">${sender}:</span><span>${text}</span>`;
