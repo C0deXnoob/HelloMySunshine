@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Watch Party</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -23,7 +23,7 @@
     <!-- Main Application Container -->
     <div id="app" class="hidden">
         
-        <!-- Landing Page (Room Creation / Joining) -->
+        <!-- Landing Page -->
         <div id="landing-page" class="card-container">
             <div class="card">
                 <h3>Host a Movie</h3>
@@ -48,17 +48,26 @@
 
             <div class="theater-layout">
                 
-                <!-- Main Screen Player Container -->
+                <!-- Main Video Area -->
                 <div class="player-container">
                     <div id="waitingState" class="waiting-placeholder">
                         <p>Waiting for host to share screen...</p>
                     </div>
+                    
+                    <!-- Audio Overlay Banner for Mobile Browsers -->
+                    <button id="unmuteBtn" class="unmute-banner hidden">
+                        🔊 Tap to Enable Audio
+                    </button>
+
                     <video id="theaterVideo" autoplay playsinline controls></video>
                 </div>
 
-                <!-- Live Chat Sidebar -->
-                <div class="chat-container">
-                    <div class="chat-header">Live Chat</div>
+                <!-- Chat Sidebar / Drawer -->
+                <div id="chatDrawer" class="chat-container">
+                    <div class="chat-header">
+                        <span>Live Chat</span>
+                        <button id="closeChatBtn" class="close-chat-btn">&times;</button>
+                    </div>
                     <div id="chatMessages" class="chat-messages"></div>
                     <form id="chatForm" class="chat-form">
                         <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
@@ -68,15 +77,16 @@
 
             </div>
 
-            <!-- Host Action Controls -->
+            <!-- Footer Controls -->
             <footer class="controls-bar">
                 <div id="hostControls" class="hidden">
-                    <button id="shareScreenBtn" class="btn btn-primary">Start Sharing Screen</button>
+                    <button id="shareScreenBtn" class="btn btn-primary">Start Sharing</button>
                     <button id="stopScreenBtn" class="btn btn-danger hidden">Stop Sharing</button>
                 </div>
                 <div id="viewerControls" class="hidden">
                     <span class="status-text">Synchronized Session Active</span>
                 </div>
+                <button id="toggleChatBtn" class="btn btn-chat-toggle">💬 Chat</button>
             </footer>
 
         </div>
