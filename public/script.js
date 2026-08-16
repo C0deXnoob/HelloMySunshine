@@ -184,14 +184,31 @@ function initPeerConnection() {
     };
 
     peerConnection.ontrack = (event) => {
-        const videoElem = document.getElementById('remoteVideo');
-        if (videoElem.srcObject !== event.streams[0]) {
-            videoElem.srcObject = event.streams[0];
-            // Unmute for viewer so they hear the audio
-            videoElem.muted = false;
+    const videoElem = document.getElementById('remoteVideo');
+    if (videoElem.srcObject !== event.streams[0]) {
+        videoElem.srcObject = event.streams[0];
+        
+        // Host stays muted to prevent echo; viewer gets unmuted stream
+        videoElem.muted = isHostUser;
+
+        // Force video play to bypass browser autoplay restrictions
+        videoElem.play().then(() => {
             document.getElementById('videoOverlay').style.display = 'none';
-        }
-    };
+        }).catch((err) => {
+            console.log("Autoplay blocked. User tap needed:", err);
+            // Show overlay/button so viewer can tap to play manually
+            const overlay = document.getElementById('videoOverlay');
+            if (overlay) {
+                overlay.style.display = 'flex';
+                overlay.innerText = 'Tap screen to play video';
+                overlay.onclick = () => {
+                    videoElem.play();
+                    overlay.style.display = 'none';
+                };
+            }
+        });
+    }
+};
 }
 
 async function initiateOffer() {
