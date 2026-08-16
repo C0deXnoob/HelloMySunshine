@@ -6,10 +6,12 @@ let userIdentity = "Your Bubu";
 let screenStream = null;
 const peers = {};
 
+// Robust STUN/TURN fallback matrix for cross-network/ISP traversal
 const config = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
         { urls: "stun:openrelay.metered.ca:80" },
         {
             urls: "turn:openrelay.metered.ca:80",
@@ -27,7 +29,7 @@ const config = {
             credential: "openrelayproject"
         }
     ],
-    iceTransportPolicy: 'all'
+    iceCandidatePoolSize: 10
 };
 
 function selectIdentity(name) {
@@ -36,7 +38,7 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-// 1. Room Logic
+// Room Controls
 document.getElementById('startMovieBtn').onclick = () => {
     const room = document.getElementById('hostRoomInput').value.trim();
     if (!room) return alert('Enter a room code');
@@ -65,27 +67,22 @@ function setupUI(role) {
     document.getElementById('theater-page').classList.remove('hidden');
     document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
 
+    const videoElem = document.getElementById('theaterVideo');
+
     if (role === 'Host') {
         document.getElementById('hostControls').classList.remove('hidden');
+        videoElem.controls = false; // Host handles original stream
     } else {
         document.getElementById('viewerControls').classList.remove('hidden');
+        // Disable controls on viewer side to prevent manual muting
+        videoElem.controls = false; 
     }
 }
 
-// 2. Chat Logic & Mobile Drawer Controls
+// Chat Engine
 const chatForm = document.getElementById('chatForm');
 const chatInput = document.getElementById('chatInput');
 const chatMessages = document.getElementById('chatMessages');
-const chatDrawer = document.getElementById('chatDrawer');
-const toggleChatBtn = document.getElementById('toggleChatBtn');
-const closeChatBtn = document.getElementById('closeChatBtn');
-
-if (toggleChatBtn) {
-    toggleChatBtn.onclick = () => chatDrawer.classList.toggle('open');
-}
-if (closeChatBtn) {
-    closeChatBtn.onclick = () => chatDrawer.classList.remove('open');
-}
 
 if (chatForm) {
     chatForm.onsubmit = (e) => {
@@ -113,7 +110,7 @@ function renderChatMessage({ sender, text }) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// 3. WebRTC Signaling Engine
+// WebRTC Cross-Network Engine
 socket.on('viewer-joined', async ({ viewerId }) => {
     if (!isHost) return;
     
@@ -158,7 +155,7 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
         try {
             await peers[callerId].addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-            console.error("ICE candidate error:", err);
+            console.error("ICE error:", err);
         }
     }
 });
@@ -175,7 +172,6 @@ function createPeerConnection(targetId) {
     pc.ontrack = (event) => {
         const videoElem = document.getElementById('theaterVideo');
         const waitingState = document.getElementById('waitingState');
-        const unmuteBtn = document.getElementById('unmuteBtn');
 
         if (event.streams && event.streams[0]) {
             videoElem.srcObject = event.streams[0];
@@ -185,19 +181,11 @@ function createPeerConnection(targetId) {
 
         if (waitingState) waitingState.classList.add('hidden');
 
-        // Unmute Handling for Mobile Browsers
+        // Always force unmuted playback with audio
         videoElem.muted = false;
         videoElem.play().catch(() => {
-            // If browser blocks unmuted autoplay, mute and show the explicit tap-to-unmute banner
-            videoElem.muted = true;
+            // Autoplay safety policy fallback
             videoElem.play();
-            if (unmuteBtn) {
-                unmuteBtn.classList.remove('hidden');
-                unmuteBtn.onclick = () => {
-                    videoElem.muted = false;
-                    unmuteBtn.classList.add('hidden');
-                };
-            }
         });
     };
 
@@ -209,7 +197,7 @@ function addTracksToPeer(pc, stream) {
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
 }
 
-// 4. Host Screen Share Engine
+// Host Screen Share Engine
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const stopScreenBtn = document.getElementById('stopScreenBtn');
 
@@ -218,12 +206,16 @@ if (shareScreenBtn) {
         try {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { displaySurface: "browser", width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: true // Captures browser tab audio
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
             });
 
             const videoElem = document.getElementById('theaterVideo');
             videoElem.srcObject = screenStream;
-            videoElem.muted = true;
+            videoElem.muted = true; // Local host preview is muted to prevent local echo
             document.getElementById('waitingState')?.classList.add('hidden');
 
             for (const viewerId of Object.keys(peers)) {
@@ -239,7 +231,7 @@ if (shareScreenBtn) {
 
             screenStream.getVideoTracks()[0].onended = stopBroadcast;
         } catch (err) {
-            console.error("Screen sharing error:", err);
+            console.error("Screen share error:", err);
         }
     };
 }
