@@ -5,7 +5,7 @@ let isHost = false;
 let userIdentity = "Your Bubu";
 let screenStream = null;
 let peer = null;
-const activeCalls = {};
+let myPeerId = null;
 
 function selectIdentity(name) {
     userIdentity = name;
@@ -13,7 +13,7 @@ function selectIdentity(name) {
     document.getElementById('app').classList.remove('hidden');
 }
 
-// Setup PeerJS for Free Peer-to-Peer Traversal
+// Setup PeerJS with Google STUN servers
 function initPeerServer(customId) {
     peer = new Peer(customId, {
         config: {
@@ -26,19 +26,25 @@ function initPeerServer(customId) {
         }
     });
 
-    // Handle incoming screen stream call on Viewer side
+    peer.on('open', (id) => {
+        myPeerId = id;
+        if (!isHost) {
+            // Notify Host via Socket.io that viewer's Peer JS connection is ready
+            socket.emit('viewer-peer-ready', { room: currentRoom, peerId: id });
+        }
+    });
+
+    // Handle incoming screen stream on Viewer side
     peer.on('call', (call) => {
-        call.answer(); // Answer incoming host broadcast
+        call.answer(); 
         call.on('stream', (remoteStream) => {
             const videoElem = document.getElementById('theaterVideo');
             const waitingState = document.getElementById('waitingState');
             
             videoElem.srcObject = remoteStream;
-            videoElem.muted = false; // Always play audio
             if (waitingState) waitingState.classList.add('hidden');
 
             videoElem.play().catch(() => {
-                // Mobile Browser Autoplay safety fallback
                 videoElem.muted = true;
                 videoElem.play();
                 showTapToUnmuteOverlay(videoElem);
@@ -53,7 +59,7 @@ function showTapToUnmuteOverlay(videoElem) {
         overlay = document.createElement('div');
         overlay.id = 'unmuteOverlay';
         overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.8);display:flex;justify-content:center;align-items:center;color:#fff;font-weight:bold;z-index:100;cursor:pointer;padding:1rem;text-align:center;border-radius:12px;';
-        overlay.innerHTML = '🔊 Tap Screen to Enable Audio & Video';
+        overlay.innerHTML = '🔊 Tap Screen to Unmute';
         document.querySelector('.player-container').appendChild(overlay);
     }
     
@@ -71,8 +77,7 @@ document.getElementById('startMovieBtn').onclick = () => {
     currentRoom = room;
     isHost = true;
     
-    // Host peer ID is room-host
-    initPeerServer(`${room}-host`);
+    initPeerServer(`${room}-host-${Date.now()}`);
     socket.emit('create-room', { room, identity: userIdentity });
     setupUI('Host');
 };
@@ -83,8 +88,7 @@ document.getElementById('joinRoomBtn').onclick = () => {
     currentRoom = room;
     isHost = false;
     
-    // Viewer peer ID is dynamic based on socket
-    initPeerServer(`${room}-viewer-${Math.floor(Math.random() * 1000)}`);
+    initPeerServer(`${room}-viewer-${Date.now()}`);
     socket.emit('join-room', { room, identity: userIdentity });
     setupUI('Viewer');
 };
@@ -120,14 +124,14 @@ if (shareScreenBtn) {
 
             const videoElem = document.getElementById('theaterVideo');
             videoElem.srcObject = screenStream;
-            videoElem.muted = true; // Local host display is muted to prevent echo
+            videoElem.muted = true;
             document.getElementById('waitingState')?.classList.add('hidden');
-
-            // Notify server that host started sharing
-            socket.emit('host-started-sharing', { room: currentRoom });
 
             shareScreenBtn.classList.add('hidden');
             if (stopScreenBtn) stopScreenBtn.classList.remove('hidden');
+
+            // Signal viewers that screen stream is live
+            socket.emit('host-sharing-started', { room: currentRoom });
 
             screenStream.getVideoTracks()[0].onended = stopBroadcast;
         } catch (err) {
@@ -136,11 +140,17 @@ if (shareScreenBtn) {
     };
 }
 
-// When a viewer joins or requests stream, host calls the viewer
-socket.on('viewer-joined', ({ viewerPeerId }) => {
-    if (isHost && screenStream && viewerPeerId) {
-        const call = peer.call(viewerPeerId, screenStream);
-        activeCalls[viewerPeerId] = call;
+// Trigger call to viewer when viewer signals they are ready
+socket.on('connect-viewer', ({ peerId }) => {
+    if (isHost && screenStream && peerId) {
+        peer.call(peerId, screenStream);
+    }
+});
+
+// If Host starts sharing after viewer is already in the room
+socket.on('host-is-sharing', () => {
+    if (!isHost && myPeerId) {
+        socket.emit('viewer-peer-ready', { room: currentRoom, peerId: myPeerId });
     }
 });
 
@@ -159,6 +169,29 @@ function stopBroadcast() {
     document.getElementById('waitingState')?.classList.remove('hidden');
     if (shareScreenBtn) shareScreenBtn.classList.remove('hidden');
     if (stopScreenBtn) stopScreenBtn.classList.add('hidden');
+}
+
+// Fullscreen Handler for Video
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+if (fullscreenBtn) {
+    fullscreenBtn.onclick = toggleFullscreen;
+}
+
+function toggleFullscreen() {
+    const videoContainer = document.querySelector('.player-container');
+    if (!document.fullscreenElement) {
+        if (videoContainer.requestFullscreen) {
+            videoContainer.requestFullscreen();
+        } else if (videoContainer.webkitRequestFullscreen) { /* Safari */
+            videoContainer.webkitRequestFullscreen();
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+    }
 }
 
 // Live Chat Engine
