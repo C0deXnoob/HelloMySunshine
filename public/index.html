@@ -48,26 +48,18 @@
 
             <div class="theater-layout">
                 
-                <!-- Main Video Area -->
+                <!-- Video Screen (Fixed at Top for Mobile) -->
                 <div class="player-container">
                     <div id="waitingState" class="waiting-placeholder">
                         <p>Waiting for host to share screen...</p>
                     </div>
-                    
-                    <!-- Audio Overlay Banner for Mobile Browsers -->
-                    <button id="unmuteBtn" class="unmute-banner hidden">
-                        🔊 Tap to Enable Audio
-                    </button>
-
-                    <video id="theaterVideo" autoplay playsinline controls></video>
+                    <!-- Video tag with no controls attribute -->
+                    <video id="theaterVideo" autoplay playsinline></video>
                 </div>
 
-                <!-- Chat Sidebar / Drawer -->
-                <div id="chatDrawer" class="chat-container">
-                    <div class="chat-header">
-                        <span>Live Chat</span>
-                        <button id="closeChatBtn" class="close-chat-btn">&times;</button>
-                    </div>
+                <!-- Chat Section (Stacked Directly Below Video on Mobile) -->
+                <div id="chatSection" class="chat-container">
+                    <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
                     <form id="chatForm" class="chat-form">
                         <input type="text" id="chatInput" placeholder="Type a message..." autocomplete="off">
@@ -84,9 +76,8 @@
                     <button id="stopScreenBtn" class="btn btn-danger hidden">Stop Sharing</button>
                 </div>
                 <div id="viewerControls" class="hidden">
-                    <span class="status-text">Synchronized Session Active</span>
+                    <span class="status-text">Live Sync Active</span>
                 </div>
-                <button id="toggleChatBtn" class="btn btn-chat-toggle">💬 Chat</button>
             </footer>
 
         </div>
