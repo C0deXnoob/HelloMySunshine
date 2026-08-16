@@ -164,6 +164,12 @@ socket.on('ice-candidate', async ({ candidate, callerId }) => {
 function createPeerConnection(targetId) {
     const pc = new RTCPeerConnection(config);
 
+    pc.oniceconnectionstatechange = () => {
+    console.log("ICE Connection State:", pc.iceConnectionState);
+    if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+        console.error("Network blocked direct connection. TURN server required.");
+    }
+};
     pc.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit('ice-candidate', { target: targetId, candidate: e.candidate });
