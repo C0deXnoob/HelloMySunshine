@@ -62,11 +62,16 @@ document.addEventListener("DOMContentLoaded", () => {
         initJitsi(room);
     };
 
-    // End Session Button Handler
+    // Force End Session Handler (Host Only)
     document.getElementById('endSessionBtn').onclick = () => {
         if (!currentRoom || !isHostUser) return;
+        
         if (confirm("Are you sure you want to end this session for everyone?")) {
+            // 1. Notify all viewers via socket first
             if (socket) socket.emit('end-session', { room: currentRoom });
+            
+            // 2. Immediately tear down host session locally
+            resetSession();
         }
     };
 
@@ -97,34 +102,33 @@ function initJitsi(roomName) {
     const safeRoom = `SunshineTheater_${roomName.replace(/\s+/g, '_')}`;
 
     const options = {
-    roomName: safeRoom,
-    width: '100%',
-    height: '100%',
-    parentNode: document.querySelector('#jitsi-container'),
-    userInfo: {
-        displayName: userIdentity
-    },
-    configOverwrite: {
-        startWithAudioMuted: false,
-        startWithVideoMuted: false,
-        disableDeepLinking: true,
-        prejoinPageEnabled: false,
-        // Add these lines to suppress promotional popups & overlays
-        hideConferenceTimer: false,
-        disableThirdPartyRequests: true,
-        doNotStoreRoom: true
-    },
-    interfaceConfigOverwrite: {
-        TOOLBAR_BUTTONS: [
-            'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
-        ],
-        SHOW_JITSI_WATERMARK: false,
-        SHOW_WATERMARK_FOR_GUESTS: false,
-        SHOW_BRAND_WATERMARK: false,
-        SHOW_POWERED_BY: false,
-        SHOW_PROMOTIONAL_CLOSE_PAGE: false
-    }
-};
+        roomName: safeRoom,
+        width: '100%',
+        height: '100%',
+        parentNode: document.querySelector('#jitsi-container'),
+        userInfo: {
+            displayName: userIdentity
+        },
+        configOverwrite: {
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            disableDeepLinking: true,
+            prejoinPageEnabled: false,
+            hideConferenceTimer: false,
+            disableThirdPartyRequests: true,
+            doNotStoreRoom: true
+        },
+        interfaceConfigOverwrite: {
+            TOOLBAR_BUTTONS: [
+                'microphone', 'camera', 'desktop', 'fullscreen', 'tileview'
+            ],
+            SHOW_JITSI_WATERMARK: false,
+            SHOW_WATERMARK_FOR_GUESTS: false,
+            SHOW_BRAND_WATERMARK: false,
+            SHOW_POWERED_BY: false,
+            SHOW_PROMOTIONAL_CLOSE_PAGE: false
+        }
+    };
 
     jitsiApi = new JitsiMeetExternalAPI(domain, options);
 }
@@ -142,20 +146,35 @@ function setupUI(role) {
     }
 }
 
+// Complete Teardown & Reset
 function resetSession() {
+    // 1. Force Jitsi Call Hangup
     if (jitsiApi) {
-        jitsiApi.dispose();
+        try {
+            jitsiApi.executeCommand('hangup');
+            jitsiApi.dispose();
+        } catch (err) {
+            console.warn("Jitsi cleanup warning:", err);
+        }
         jitsiApi = null;
     }
     
-    document.getElementById('jitsi-container').innerHTML = '';
+    // 2. Wipe iframe node completely from DOM
+    const container = document.getElementById('jitsi-container');
+    if (container) {
+        container.innerHTML = '';
+    }
+    
+    // 3. Clear inputs & chat state
     document.getElementById('chatMessages').innerHTML = '';
     document.getElementById('hostRoomInput').value = '';
     document.getElementById('joinRoomInput').value = '';
     
+    // 4. Reset variables
     currentRoom = null;
     isHostUser = false;
     
+    // 5. Switch screen back to home
     document.getElementById('theater-page').classList.add('hidden');
     document.getElementById('landing-page').classList.remove('hidden');
 }
