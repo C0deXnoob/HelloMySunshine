@@ -6,8 +6,8 @@
     <title>Watch Party</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- Daily.co SDK -->
-    <script src="https://unpkg.com/@daily-co/daily-js"></script>
+    <!-- Free Open-Source PeerJS SDK -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -50,10 +50,15 @@
 
             <div class="theater-layout">
                 
-                <!-- Video Screen Section (Daily.co frame attaches here) -->
-                <div class="player-container"></div>
+                <!-- Video Screen Section -->
+                <div class="player-container">
+                    <div id="waitingState" class="waiting-placeholder">
+                        <p>Waiting for host to share screen...</p>
+                    </div>
+                    <video id="theaterVideo" autoplay playsinline></video>
+                </div>
 
-                <!-- Chat Section (Stacked Directly Below Screen) -->
+                <!-- Chat Section Directly Below Video -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
