@@ -369,6 +369,23 @@ body {
     font-weight: 500;
 }
 
+/* Force hide Jitsi promo popups and overlay banners */
+#jitsi-container iframe {
+    pointer-events: auto !important;
+}
+
+/* Hide promotional banners and dialog overlays injected by Jitsi */
+.promotional-footer,
+.jaas-promo,
+div[class*="promotional"],
+div[class*="promo"],
+.watermark,
+.jitsi-icon-default {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 /* Desktop Responsive Layout Switch */
 @media (min-width: 769px) {
     .theater-layout {
