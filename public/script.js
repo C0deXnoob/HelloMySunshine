@@ -8,10 +8,27 @@ let localStream = null;
 let iceCandidateQueue = [];
 
 // Public Google STUN servers for cross-network connectivity
+// Updated WebRTC configuration with STUN + TURN for Mobile Data / Carrier NAT
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelay',
+            credential: 'openrelay'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelay',
+            credential: 'openrelay'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelay',
+            credential: 'openrelay'
+        }
     ]
 };
 
@@ -39,11 +56,16 @@ document.addEventListener("DOMContentLoaded", () => {
             resetSession();
         });
 
-        socket.on('user-joined', () => {
-            if (isHostUser && localStream) {
-                initiateOffer();
-            }
-        });
+        socket.on('user-joined', async () => {
+    if (isHostUser && localStream) {
+        // Close old stale peer connection if re-connecting
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        await initiateOffer();
+    }
+});
 
         socket.on('signal', async (data) => {
             handleSignal(data.signal);
