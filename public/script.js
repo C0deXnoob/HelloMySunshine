@@ -7,13 +7,25 @@ let screenStream = null;
 let localStream = null;
 const peers = {};
 
+// Updated to OpenRelay (Free TURN Servers)
 const config = {
     iceServers: [
-        { urls: "stun:stun.relay.metered.ca:80" },
-        { urls: "turn:global.relay.metered.ca:80", username: "4197c2939986cbb90cde1ca8", credential: "auhTPCKBx8KLH3Bj" },
-        { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "4197c2939986cbb90cde1ca8", credential: "auhTPCKBx8KLH3Bj" },
-        { urls: "turn:global.relay.metered.ca:443", username: "4197c2939986cbb90cde1ca8", credential: "auhTPCKBx8KLH3Bj" },
-        { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "4197c2939986cbb90cde1ca8", credential: "auhTPCKBx8KLH3Bj" }
+        { urls: "stun:openrelay.metered.ca:80" },
+        {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelay",
+            credential: "openrelay"
+        },
+        {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelay",
+            credential: "openrelay"
+        },
+        {
+            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+            username: "openrelay",
+            credential: "openrelay"
+        }
     ],
     iceTransportPolicy: 'all'
 };
@@ -158,7 +170,6 @@ function createPeerConnection(targetId) {
 
         // Check if track is screen share or webcam stream
         if (event.track.kind === 'video') {
-            // If the stream has multiple tracks or is marked as screen stream, show in main theater
             if (remoteStream === screenStream || event.track.label.includes('screen') || event.track.label.includes('display')) {
                 document.getElementById('waitingState').classList.add('hidden');
                 videoElem.srcObject = remoteStream;
@@ -167,14 +178,12 @@ function createPeerConnection(targetId) {
                     videoElem.play();
                 });
             } else {
-                // Route partner's webcam stream to the remote overlay window
                 if (remoteCamElem) {
                     remoteCamElem.srcObject = remoteStream;
                     remoteCamElem.play().catch(err => console.error("Remote cam play error:", err));
                 }
             }
         } else if (event.track.kind === 'audio') {
-            // Attach webcam audio directly to remote camera element
             if (remoteCamElem && remoteStream !== screenStream) {
                 remoteCamElem.srcObject = remoteStream;
             }
@@ -195,25 +204,20 @@ document.getElementById('toggleCamBtn').onclick = async () => {
     
     if (!localStream) {
         try {
-            // Get local camera & mic
             localStream = await navigator.mediaDevices.getUserMedia({ 
                 video: { width: 640, height: 480 }, 
                 audio: true 
             });
             
-            // Show your own camera preview locally
             document.getElementById('localCamVideo').srcObject = localStream;
 
-            // Add tracks to all active peer connections
             for (const targetId of Object.keys(peers)) {
                 const pc = peers[targetId];
                 
-                // Add camera tracks to peer connection
                 localStream.getTracks().forEach(track => {
                     pc.addTrack(track, localStream);
                 });
 
-                // Trigger renegotiation offer
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
                 socket.emit('offer', { target: targetId, offer });
@@ -226,7 +230,6 @@ document.getElementById('toggleCamBtn').onclick = async () => {
             alert("Unable to access camera or microphone.");
         }
     } else {
-        // Stop local camera tracks
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
         document.getElementById('localCamVideo').srcObject = null;
