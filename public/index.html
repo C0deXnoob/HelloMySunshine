@@ -6,6 +6,8 @@
     <title>Watch Party</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- Daily.co SDK -->
+    <script src="https://unpkg.com/@daily-co/daily-js"></script>
 </head>
 <body>
 
@@ -48,16 +50,10 @@
 
             <div class="theater-layout">
                 
-                <!-- Video Screen (Fixed at Top for Mobile) -->
-                <div class="player-container">
-                    <div id="waitingState" class="waiting-placeholder">
-                        <p>Waiting for host to share screen...</p>
-                    </div>
-                    <!-- Video tag with no controls attribute -->
-                    <video id="theaterVideo" autoplay playsinline></video>
-                </div>
+                <!-- Video Screen Section (Daily.co frame attaches here) -->
+                <div class="player-container"></div>
 
-                <!-- Chat Section (Stacked Directly Below Video on Mobile) -->
+                <!-- Chat Section (Stacked Directly Below Screen) -->
                 <div id="chatSection" class="chat-container">
                     <div class="chat-header">Live Chat</div>
                     <div id="chatMessages" class="chat-messages"></div>
@@ -72,7 +68,7 @@
             <!-- Footer Controls -->
             <footer class="controls-bar">
                 <div id="hostControls" class="hidden">
-                    <button id="shareScreenBtn" class="btn btn-primary">Start Sharing</button>
+                    <button id="shareScreenBtn" class="btn btn-primary">Start Sharing Screen</button>
                     <button id="stopScreenBtn" class="btn btn-danger hidden">Stop Sharing</button>
                 </div>
                 <div id="viewerControls" class="hidden">
