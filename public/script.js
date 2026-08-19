@@ -6,148 +6,394 @@ let isHostUser = false;
 let peerConnection = null;
 let localStream = null;
 let iceCandidateQueue = [];
+let makingOffer = false;
+let isSettingRemoteAnswerPending = false;
 
-// Public Google STUN servers for cross-network connectivity
-// Updated WebRTC configuration with STUN + TURN for Mobile Data / Carrier NAT
 const rtcConfig = {
     iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: [
+            'stun:stun.l.google.com:19302',
+            'stun:stun1.l.google.com:19302',
+            'stun:stun2.l.google.com:19302'
+        ]},
+        // Demo TURN service. For production, replace these with your own
+        // TURN credentials through environment variables on the server.
         {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelay',
-            credential: 'openrelay'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelay',
-            credential: 'openrelay'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            urls: [
+                'turn:openrelay.metered.ca:80',
+                'turn:openrelay.metered.ca:443',
+                'turn:openrelay.metered.ca:443?transport=tcp'
+            ],
             username: 'openrelay',
             credential: 'openrelay'
         }
-    ]
+    ],
+    iceCandidatePoolSize: 10
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-    
+const $ = (id) => document.getElementById(id);
+
+function setOverlay(text, clickable = false) {
+    const overlay = $('videoOverlay');
+    if (!overlay) return;
+    overlay.textContent = text;
+    overlay.style.display = 'flex';
+    overlay.style.pointerEvents = clickable ? 'auto' : 'none';
+}
+
+function hideOverlay() {
+    const overlay = $('videoOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none';
+    }
+}
+
+function logConnectionState() {
+    if (!peerConnection) return;
+    console.log('[WebRTC]', {
+        connectionState: peerConnection.connectionState,
+        iceConnectionState: peerConnection.iceConnectionState,
+        iceGatheringState: peerConnection.iceGatheringState,
+        signalingState: peerConnection.signalingState
+    });
+}
+
+function attachRemoteStream(stream) {
+    const video = $('remoteVideo');
+    if (!video) return;
+
+    video.srcObject = stream;
+    video.muted = isHostUser;
+
+    const videoTracks = stream.getVideoTracks();
+    const audioTracks = stream.getAudioTracks();
+    console.log('[MEDIA] Remote video tracks:', videoTracks.length);
+    console.log('[MEDIA] Remote audio tracks:', audioTracks.length);
+
+    if (audioTracks.length === 0 && !isHostUser) {
+        setOverlay('Video connected, but no audio was received. Host must share Tab Audio.', true);
+    } else {
+        setOverlay('Connected. Tap to play if needed.', true);
+    }
+
+    video.play().then(() => {
+        hideOverlay();
+    }).catch((err) => {
+        console.warn('[MEDIA] Autoplay blocked:', err);
+        setOverlay('▶ Tap here to play the movie', true);
+    });
+}
+
+async function playRemoteVideo() {
+    const video = $('remoteVideo');
+    if (!video || !video.srcObject) return;
     try {
-        socket = io("https://hellomysunshine.onrender.com");
-        
-        socket.on('viewer-count-update', (count) => {
-            const countElem = document.getElementById('viewerCount');
-            if (countElem) countElem.innerText = count;
+        await video.play();
+        hideOverlay();
+    } catch (err) {
+        console.error('[MEDIA] Manual play failed:', err);
+        setOverlay('Browser blocked playback. Tap again or check browser permissions.', true);
+    }
+}
+
+function initPeerConnection() {
+    if (peerConnection) return peerConnection;
+
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate && socket && currentRoom) {
+            socket.emit('signal', {
+                room: currentRoom,
+                signal: { candidate: event.candidate }
+            });
+        }
+    };
+
+    peerConnection.onicecandidateerror = (event) => {
+        console.warn('[ICE] Candidate error:', event.errorCode, event.errorText, event.url);
+    };
+
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log('[ICE] State:', peerConnection.iceConnectionState);
+        logConnectionState();
+
+        if (peerConnection.iceConnectionState === 'failed') {
+            setOverlay('Connection failed. Try refreshing both devices and reconnecting.', true);
+        }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+        console.log('[WebRTC] Connection:', peerConnection.connectionState);
+        logConnectionState();
+
+        if (peerConnection.connectionState === 'connected') {
+            console.log('[WebRTC] Media connection established successfully.');
+        }
+        if (peerConnection.connectionState === 'failed') {
+            setOverlay('WebRTC connection failed. A TURN server may be required.', true);
+        }
+    };
+
+    peerConnection.onicegatheringstatechange = () => {
+        console.log('[ICE] Gathering:', peerConnection.iceGatheringState);
+    };
+
+    peerConnection.onsignalingstatechange = () => {
+        console.log('[WebRTC] Signaling:', peerConnection.signalingState);
+    };
+
+    peerConnection.ontrack = (event) => {
+        const stream = event.streams && event.streams[0];
+        if (stream) attachRemoteStream(stream);
+    };
+
+    peerConnection.onnegotiationneeded = async () => {
+        // Only the host creates offers in this 1-host/1-viewer architecture.
+        if (!isHostUser || !localStream || makingOffer) return;
+        try {
+            await createAndSendOffer();
+        } catch (err) {
+            console.error('[WebRTC] Negotiation failed:', err);
+        }
+    };
+
+    return peerConnection;
+}
+
+function addLocalTracks() {
+    if (!peerConnection || !localStream) return;
+
+    const existingTrackIds = new Set(
+        peerConnection.getSenders()
+            .map(sender => sender.track && sender.track.id)
+            .filter(Boolean)
+    );
+
+    localStream.getTracks().forEach(track => {
+        if (!existingTrackIds.has(track.id)) {
+            peerConnection.addTrack(track, localStream);
+        }
+    });
+}
+
+async function createAndSendOffer() {
+    if (!isHostUser || !localStream || !socket || !currentRoom) return;
+    initPeerConnection();
+    addLocalTracks();
+
+    if (makingOffer) return;
+    makingOffer = true;
+    try {
+        const offer = await peerConnection.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+        });
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('signal', {
+            room: currentRoom,
+            signal: { sdp: peerConnection.localDescription }
+        });
+    } finally {
+        makingOffer = false;
+    }
+}
+
+async function handleSignal(signal) {
+    const pc = initPeerConnection();
+
+    try {
+        if (signal.sdp) {
+            const description = new RTCSessionDescription(signal.sdp);
+            await pc.setRemoteDescription(description);
+
+            while (iceCandidateQueue.length) {
+                const candidate = iceCandidateQueue.shift();
+                await pc.addIceCandidate(candidate);
+            }
+
+            if (description.type === 'offer') {
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.emit('signal', {
+                    room: currentRoom,
+                    signal: { sdp: pc.localDescription }
+                });
+            }
+            return;
+        }
+
+        if (signal.candidate) {
+            const candidate = new RTCIceCandidate(signal.candidate);
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(candidate);
+            } else {
+                iceCandidateQueue.push(candidate);
+            }
+        }
+    } catch (err) {
+        console.error('[WebRTC] Signal handling error:', err);
+    }
+}
+
+async function startScreenShare() {
+    try {
+        // IMPORTANT: For movie audio, select the movie browser tab and enable
+        // "Share tab audio" in Chrome/Edge's sharing dialog.
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+                frameRate: { ideal: 30, max: 60 },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            },
+            audio: true,
+            systemAudio: 'include',
+            surfaceSwitching: 'include'
         });
 
-        socket.on('chat-message', (data) => renderChatMessage(data));
-        socket.on('chat-history', (history) => {
-            const chatMessages = document.getElementById('chatMessages');
-            if (chatMessages) {
-                chatMessages.innerHTML = '';
-                history.forEach(msg => renderChatMessage(msg));
-            }
+        const videoTracks = localStream.getVideoTracks();
+        const audioTracks = localStream.getAudioTracks();
+        console.log('[CAPTURE] Video tracks:', videoTracks.length);
+        console.log('[CAPTURE] Audio tracks:', audioTracks.length);
+
+        if (!videoTracks.length) {
+            throw new Error('No screen video track was captured.');
+        }
+
+        const video = $('remoteVideo');
+        video.srcObject = localStream;
+        video.muted = true;
+        video.play().catch(() => {});
+        hideOverlay();
+
+        if (!audioTracks.length) {
+            console.warn('[CAPTURE] No screen/tab audio was captured. Select a Chrome/Edge tab and enable Share tab audio.');
+        }
+
+        videoTracks[0].onended = () => {
+            if (currentRoom && socket) socket.emit('end-session', { room: currentRoom });
+            resetSession(false);
+        };
+
+        audioTracks.forEach(track => {
+            track.onended = () => console.log('[CAPTURE] Shared audio track ended.');
+        });
+
+        initPeerConnection();
+        addLocalTracks();
+
+        socket.emit('create-room', { room: currentRoom, identity: userIdentity });
+        setupUI('Host');
+        setOverlay('Waiting for your Bubu/Dudu to join...', false);
+    } catch (err) {
+        console.error('[CAPTURE] getDisplayMedia failed:', err);
+        localStream = null;
+        alert('Screen sharing was cancelled or blocked. Please allow screen sharing and try again.');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        socket = io('https://hellomysunshine.onrender.com', {
+            transports: ['websocket', 'polling'],
+            reconnection: true
+        });
+
+        socket.on('connect', () => console.log('[Socket.IO] Connected:', socket.id));
+        socket.on('disconnect', reason => console.warn('[Socket.IO] Disconnected:', reason));
+        socket.on('connect_error', err => console.error('[Socket.IO] Connection error:', err));
+
+        socket.on('viewer-count-update', count => {
+            if ($('viewerCount')) $('viewerCount').innerText = count;
+        });
+
+        socket.on('chat-message', renderChatMessage);
+        socket.on('chat-history', history => {
+            if (!$('chatMessages')) return;
+            $('chatMessages').innerHTML = '';
+            history.forEach(renderChatMessage);
         });
 
         socket.on('session-ended', () => {
             alert('The session has ended.');
-            resetSession();
+            resetSession(false);
         });
 
-        socket.on('user-joined', async () => {
-    if (isHostUser && localStream) {
-        // Close old stale peer connection if re-connecting
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-        await initiateOffer();
-    }
-});
-
-        socket.on('signal', async (data) => {
-            handleSignal(data.signal);
+        socket.on('host-ready', async () => {
+            console.log('[SIGNAL] Host is ready. Viewer will wait for offer.');
         });
 
+        socket.on('viewer-joined', async () => {
+            console.log('[SIGNAL] Viewer joined. Host creating offer.');
+            if (isHostUser && localStream) {
+                try {
+                    // Fresh connection for the single viewer.
+                    if (peerConnection) {
+                        peerConnection.close();
+                        peerConnection = null;
+                    }
+                    iceCandidateQueue = [];
+                    await createAndSendOffer();
+                } catch (err) {
+                    console.error('[SIGNAL] Could not create offer:', err);
+                }
+            }
+        });
+
+        socket.on('signal', data => handleSignal(data.signal));
     } catch (e) {
-        console.error("Socket Connection Error:", e);
+        console.error('Socket connection setup error:', e);
     }
 
-    document.getElementById('btnBubu').onclick = () => selectIdentity('Your Bubu');
-    document.getElementById('btnDudu').onclick = () => selectIdentity('Your Dudu');
+    $('btnBubu').onclick = () => selectIdentity('Your Bubu');
+    $('btnDudu').onclick = () => selectIdentity('Your Dudu');
 
-    // Host Action
-    document.getElementById('startMovieBtn').onclick = async () => {
-        const room = document.getElementById('hostRoomInput').value.trim();
+    $('startMovieBtn').onclick = async () => {
+        const room = $('hostRoomInput').value.trim();
         if (!room) return alert('Enter a room code');
+        if (!socket || !socket.connected) return alert('Connecting to server. Please try again in a moment.');
         currentRoom = room;
         isHostUser = true;
-
-        try {
-            // Request display media with constraints enforcing echo cancellation
-            localStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { frameRate: { ideal: 30, max: 60 } },
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
-
-            const videoElem = document.getElementById('remoteVideo');
-            videoElem.srcObject = localStream;
-            
-            // Host video must be muted locally so host doesn't hear double audio
-            videoElem.muted = true;
-            document.getElementById('videoOverlay').style.display = 'none';
-
-            if (socket) socket.emit('create-room', { room, identity: userIdentity });
-            setupUI('Host');
-
-            localStream.getVideoTracks()[0].onended = () => {
-                if (socket) socket.emit('end-session', { room: currentRoom });
-                resetSession();
-            };
-
-        } catch (err) {
-            alert("Screen sharing permission denied or cancelled.");
-        }
+        await startScreenShare();
     };
 
-    // Viewer Action
-    document.getElementById('joinRoomBtn').onclick = () => {
-        const room = document.getElementById('joinRoomInput').value.trim();
+    $('joinRoomBtn').onclick = () => {
+        const room = $('joinRoomInput').value.trim();
         if (!room) return alert('Enter room code');
+        if (!socket || !socket.connected) return alert('Connecting to server. Please try again in a moment.');
+
         currentRoom = room;
         isHostUser = false;
-
-        setupUI('Viewer');
+        iceCandidateQueue = [];
         initPeerConnection();
-
-        if (socket) socket.emit('join-room', { room, identity: userIdentity });
+        setupUI('Viewer');
+        setOverlay('Waiting for host to share screen...', false);
+        socket.emit('join-room', { room, identity: userIdentity });
     };
 
-    // End Session Handler
-    document.getElementById('endSessionBtn').onclick = () => {
+    $('videoOverlay').onclick = playRemoteVideo;
+
+    $('endSessionBtn').onclick = () => {
         if (!currentRoom || !isHostUser) return;
-        if (confirm("End session for everyone?")) {
-            if (socket) socket.emit('end-session', { room: currentRoom });
-            resetSession();
+        if (confirm('End session for everyone?')) {
+            socket.emit('end-session', { room: currentRoom });
+            resetSession(false);
         }
     };
 
-    // Chat Handler
-    const chatForm = document.getElementById('chatForm');
+    const chatForm = $('chatForm');
     if (chatForm) {
-        chatForm.onsubmit = (e) => {
+        chatForm.onsubmit = e => {
             e.preventDefault();
-            const input = document.getElementById('chatInput');
+            const input = $('chatInput');
             const text = input.value.trim();
             if (!text || !currentRoom) return;
-
-            if (socket) socket.emit('send-chat-message', { room: currentRoom, sender: userIdentity, text });
+            socket.emit('send-chat-message', {
+                room: currentRoom,
+                sender: userIdentity,
+                text
+            });
             input.value = '';
         };
     }
@@ -155,137 +401,64 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function selectIdentity(name) {
     userIdentity = name;
-    document.getElementById('identityModal').style.display = 'none';
-    document.getElementById('app').classList.remove('hidden');
+    $('identityModal').style.display = 'none';
+    $('app').classList.remove('hidden');
 }
 
 function setupUI(role) {
-    document.getElementById('landing-page').classList.add('hidden');
-    document.getElementById('theater-page').classList.remove('hidden');
-    document.getElementById('roleBadge').innerText = `${role} (${userIdentity})`;
-
-    const endBtn = document.getElementById('endSessionBtn');
-    if (isHostUser) {
-        endBtn.classList.remove('hidden');
-    } else {
-        endBtn.classList.add('hidden');
-    }
+    $('landing-page').classList.add('hidden');
+    $('theater-page').classList.remove('hidden');
+    $('roleBadge').innerText = `${role} (${userIdentity})`;
+    $('endSessionBtn').classList.toggle('hidden', !isHostUser);
 }
 
-function initPeerConnection() {
-    if (peerConnection) return;
+function resetSession(emitEnd = false) {
+    if (emitEnd && currentRoom && socket) socket.emit('end-session', { room: currentRoom });
 
-    peerConnection = new RTCPeerConnection(rtcConfig);
-
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            socket.emit('signal', { room: currentRoom, signal: { candidate: event.candidate } });
-        }
-    };
-
-    peerConnection.ontrack = (event) => {
-    const videoElem = document.getElementById('remoteVideo');
-    if (videoElem.srcObject !== event.streams[0]) {
-        videoElem.srcObject = event.streams[0];
-        
-        // Host stays muted to prevent echo; viewer gets unmuted stream
-        videoElem.muted = isHostUser;
-
-        // Force video play to bypass browser autoplay restrictions
-        videoElem.play().then(() => {
-            document.getElementById('videoOverlay').style.display = 'none';
-        }).catch((err) => {
-            console.log("Autoplay blocked. User tap needed:", err);
-            // Show overlay/button so viewer can tap to play manually
-            const overlay = document.getElementById('videoOverlay');
-            if (overlay) {
-                overlay.style.display = 'flex';
-                overlay.innerText = 'Tap screen to play video';
-                overlay.onclick = () => {
-                    videoElem.play();
-                    overlay.style.display = 'none';
-                };
-            }
-        });
-    }
-};
-}
-
-async function initiateOffer() {
-    initPeerConnection();
-    
-    if (localStream) {
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
-    }
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
-}
-
-async function handleSignal(signal) {
-    initPeerConnection();
-
-    if (signal.sdp) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-        
-        while (iceCandidateQueue.length > 0) {
-            const candidate = iceCandidateQueue.shift();
-            await peerConnection.addIceCandidate(candidate);
-        }
-
-        if (signal.sdp.type === 'offer') {
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit('signal', { room: currentRoom, signal: { sdp: peerConnection.localDescription } });
-        }
-    } else if (signal.candidate) {
-        const candidate = new RTCIceCandidate(signal.candidate);
-        if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
-            await peerConnection.addIceCandidate(candidate);
-        } else {
-            iceCandidateQueue.push(candidate);
-        }
-    }
-}
-
-function resetSession() {
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
     }
-
     if (peerConnection) {
+        peerConnection.ontrack = null;
+        peerConnection.onicecandidate = null;
         peerConnection.close();
         peerConnection = null;
     }
 
     iceCandidateQueue = [];
-    const videoElem = document.getElementById('remoteVideo');
-    videoElem.srcObject = null;
-    videoElem.muted = false;
-    document.getElementById('videoOverlay').style.display = 'flex';
+    makingOffer = false;
+    isSettingRemoteAnswerPending = false;
 
-    document.getElementById('chatMessages').innerHTML = '';
-    document.getElementById('hostRoomInput').value = '';
-    document.getElementById('joinRoomInput').value = '';
+    const video = $('remoteVideo');
+    video.pause();
+    video.srcObject = null;
+    video.muted = false;
+    setOverlay('Waiting for Host to share screen...', false);
+
+    $('chatMessages').innerHTML = '';
+    $('hostRoomInput').value = '';
+    $('joinRoomInput').value = '';
 
     currentRoom = null;
     isHostUser = false;
-
-    document.getElementById('theater-page').classList.add('hidden');
-    document.getElementById('landing-page').classList.remove('hidden');
+    $('theater-page').classList.add('hidden');
+    $('landing-page').classList.remove('hidden');
 }
 
 function renderChatMessage({ sender, text }) {
-    const chatMessages = document.getElementById('chatMessages');
+    const chatMessages = $('chatMessages');
     if (!chatMessages) return;
-
     const div = document.createElement('div');
     div.className = 'chat-msg';
-    div.innerHTML = `<span class="sender">${sender}:</span><span>${text}</span>`;
+
+    const senderSpan = document.createElement('span');
+    senderSpan.className = 'sender';
+    senderSpan.textContent = `${sender}:`;
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+
+    div.append(senderSpan, textSpan);
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
